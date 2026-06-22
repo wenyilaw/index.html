@@ -36,12 +36,6 @@ const DEFAULT_COST_DB = {
     channelBundle20: { internal: 25, external: 0, label: 'Bundle Rate (20+ channels)', unit: 'per channel/month' },
     channelBundle50: { internal: 20, external: 0, label: 'Bundle Rate (50+ channels)', unit: 'per channel/month' },
   },
-  channelDidBundles: {
-    sipDidBundle: { internal: 35, external: 0, label: 'SIP Channel + Local DID Bundle', unit: 'per bundle/month' },
-    sipDidBundle20: { internal: 30, external: 0, label: 'SIP Channel + DID Bundle (20+)', unit: 'per bundle/month' },
-    sipDidBundle50: { internal: 25, external: 0, label: 'SIP Channel + DID Bundle (50+)', unit: 'per bundle/month' },
-    sipDidBundleActivation: { internal: 25, external: 0, label: 'SIP Channel + DID Bundle Activation', unit: 'per bundle/one-time' },
-  },
   numbers: {
     didLocal: { internal: 5, external: 0, label: 'Local DID Number', unit: 'per number/month' },
     didTollFree: { internal: 15, external: 0, label: 'Toll-Free (1-800) Number', unit: 'per number/month' },
@@ -95,6 +89,16 @@ const DEFAULT_COST_DB = {
 const DEFAULT_USERS = [
   { username: 'admin', password: 'admin123', role: 'admin', displayName: 'Administrator' },
 ];
+
+const DEFAULT_BUNDLE_RULES = {
+  channelDidLink: {
+    enabled: true,
+    channelItem: 'channels.perChannelMonthly',
+    didItem: 'numbers.didLocal',
+    didPerChannel: 2,
+    label: 'SIP Channel to DID Rule',
+  },
+};
 
 const ROLE_LABELS = { admin: 'Administrator', editor: 'Engineering', sales: 'Sales' };
 const ROLE_COLORS = { admin: ACCENT, editor: ACCENT2, sales: GREEN };
@@ -168,7 +172,6 @@ const LINE_ITEM_SECTION_OPTIONS = [
   'Monthly Rental Charges (Recurring)',
   'SIP DIDs',
   'SIP Channels',
-  'SIP Channels + DIDs Bundle',
   'Add-ons',
   'Call Charges',
 ];
@@ -179,7 +182,6 @@ const defaultLineItemSection = (dotPath = '') => {
   if (category === 'sipTrunk') return 'Monthly Rental Charges (Recurring)';
   if (category === 'numbers') return 'SIP DIDs';
   if (category === 'channels') return 'SIP Channels';
-  if (category === 'channelDidBundles') return 'SIP Channels + DIDs Bundle';
   if (category === 'cloudPBX') return 'Managed Services';
   if (category === 'professionalServices') return 'Professional Services';
   if (category === 'callRates') return 'Call Charges';
@@ -232,7 +234,6 @@ const isRecurring = (unit) => unit.includes('month') || unit.includes('per minut
 const catLabels = {
   sipTrunk: 'SIP Trunk',
   channels: 'Channels',
-  channelDidBundles: 'SIP Channel + DID Bundles',
   numbers: 'Numbers / DID',
   integration: 'Integration & Testing',
   cloudPBX: 'Cloud PBX',
@@ -240,9 +241,9 @@ const catLabels = {
   callRates: 'Call Rates',
 };
 
-const catOrder = ['sipTrunk', 'channels', 'channelDidBundles', 'numbers', 'integration', 'cloudPBX', 'professionalServices', 'callRates'];
+const catOrder = ['sipTrunk', 'channels', 'numbers', 'integration', 'cloudPBX', 'professionalServices', 'callRates'];
 
-const unitOptions = ['one-time', 'per month', 'per trunk/month', 'per link/month', 'per channel/month', 'per bundle/month', 'per bundle/one-time', 'per number/month', 'per number/one-time', 'per user/month', 'per unit/month', 'per day', 'per session', 'per site/one-time', 'per minute', 'per message', 'included/month'];
+const unitOptions = ['one-time', 'per month', 'per trunk/month', 'per link/month', 'per channel/month', 'per number/month', 'per number/one-time', 'per user/month', 'per unit/month', 'per day', 'per session', 'per site/one-time', 'per minute', 'per message', 'included/month'];
 
 // ═══════════════════════════════════════════════════════════════
 // MAIN COMPONENT
@@ -317,6 +318,10 @@ export default function SIPPricingPlaybook() {
   useEffect(() => {
     try { localStorage.setItem('sipCostDB_v3', JSON.stringify(costDB)); } catch (e) { /* ignore */ }
   }, [costDB]);
+
+  useEffect(() => {
+    try { localStorage.setItem('sipBundleRules_v1', JSON.stringify(bundleRules)); } catch (e) { /* ignore */ }
+  }, [bundleRules]);
 
   useEffect(() => {
     try { localStorage.setItem('sipScenarios_v3', JSON.stringify(scenarios.map(prepareScenarioForStorage))); } catch (e) { /* ignore */ }
@@ -635,12 +640,27 @@ export default function SIPPricingPlaybook() {
     return grouped.filter(g => g.items.length > 0);
   };
 
-  const getQty = (dotPath) => {
+  const isBundleDidItem = (dotPath) => {
+    const rule = bundleRules.channelDidLink || DEFAULT_BUNDLE_RULES.channelDidLink;
+    const activeItems = getActiveItems();
+    return !!(rule.enabled && dotPath === rule.didItem && activeItems.includes(rule.channelItem) && activeItems.includes(rule.didItem));
+  };
+
+  const getBaseQty = (dotPath) => {
     if (qtyInputs[dotPath] !== undefined) return qtyInputs[dotPath];
     const setting = getScenarioItemSetting(dotPath);
     return Number(setting.defaultQty) || 0;
   };
+
+  const getQty = (dotPath) => {
+    if (isBundleDidItem(dotPath)) {
+      const rule = bundleRules.channelDidLink || DEFAULT_BUNDLE_RULES.channelDidLink;
+      return getBaseQty(rule.channelItem) * (Number(rule.didPerChannel) || 0);
+    }
+    return getBaseQty(dotPath);
+  };
   const setQty = (dotPath, val) => {
+    if (isBundleDidItem(dotPath)) return;
     const setting = getScenarioItemSetting(dotPath);
     if (!setting.quantityEditable) return;
     const minQty = Number(setting.minQty) || 0;
@@ -1161,16 +1181,19 @@ export default function SIPPricingPlaybook() {
                         const lineMargin = lt.sell > 0 ? ((lt.sell - lt.internal - lt.external) / lt.sell * 100) : 0;
                         const hasQty = getQty(dotPath) > 0;
                         const qtySetting = getScenarioItemSetting(dotPath);
+                        const bundleLinkedDid = isBundleDidItem(dotPath);
+                        const qtyEditable = qtySetting.quantityEditable && !bundleLinkedDid;
                         return (
                           <div key={dotPath} style={{ display: 'grid', gridTemplateColumns: '2.4fr 60px 90px 90px 90px 70px', padding: '8px 18px', borderBottom: '1px solid ' + BORDER, alignItems: 'center', background: hasQty ? ACCENT_SOFT : SURFACE, transition: 'background 0.15s' }}>
                             <div>
                               <span style={{ fontSize: 12, fontWeight: 500, color: INK }}>{item.label}</span>
                               <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, color: INK3, marginLeft: 6, letterSpacing: '0.04em' }}>{item.unit}</span>
+                              {bundleLinkedDid && <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, color: ACCENT, marginLeft: 6, letterSpacing: '0.04em' }}>AUTO: {bundleRules.channelDidLink.didPerChannel} DID per channel</span>}
                             </div>
                             <div style={{ textAlign: 'center' }}>
-                              <input type="number" min={qtySetting.minQty || 0} max={qtySetting.maxQty || 9999} value={getQty(dotPath) || ''} onChange={e => setQty(dotPath, e.target.value)} placeholder="0" disabled={!qtySetting.quantityEditable}
-                                style={{ width: 48, padding: '3px 5px', fontFamily: "'JetBrains Mono', monospace", fontSize: 11, border: '1.5px solid ' + BORDER, background: qtySetting.quantityEditable ? SURFACE : BG, borderRadius: 6, textAlign: 'center', color: qtySetting.quantityEditable ? INK : INK3, cursor: qtySetting.quantityEditable ? 'text' : 'not-allowed' }} />
-                              {!qtySetting.quantityEditable && <span title="Quantity locked by admin" style={{ fontSize: 10, color: INK3, marginLeft: 3 }}>🔒</span>}
+                              <input type="number" min={qtySetting.minQty || 0} max={qtySetting.maxQty || 9999} value={getQty(dotPath) || ''} onChange={e => setQty(dotPath, e.target.value)} placeholder="0" disabled={!qtyEditable}
+                                style={{ width: 48, padding: '3px 5px', fontFamily: "'JetBrains Mono', monospace", fontSize: 11, border: '1.5px solid ' + BORDER, background: qtyEditable ? SURFACE : BG, borderRadius: 6, textAlign: 'center', color: qtyEditable ? INK : INK3, cursor: qtyEditable ? 'text' : 'not-allowed' }} />
+                              {!qtyEditable && <span title={bundleLinkedDid ? 'DID quantity is linked to SIP channel quantity' : 'Quantity locked by admin'} style={{ fontSize: 10, color: INK3, marginLeft: 3 }}>🔒</span>}
                             </div>
                             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, textAlign: 'right', color: INK2 }}>{formatMYR(lt.internal)}</span>
                             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, textAlign: 'right', color: INK2 }}>{formatMYR(lt.external)}</span>
@@ -1269,6 +1292,39 @@ export default function SIPPricingPlaybook() {
                 )}
               </div>
             </div>
+
+            {canEditDB && (
+              <div style={{ background: ACCENT_SOFT, border: '1px solid ' + ACCENT + '33', borderRadius: 8, padding: '14px 18px', marginBottom: 14, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+                  <div>
+                    <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: ACCENT, margin: 0 }}>Bundle Rule</p>
+                    <p style={{ fontSize: 12, color: INK3, margin: '4px 0 0' }}>Auto-tie SIP Channels to Local DID quantity. Example: 5 channels = 10 DID when ratio is 2.</p>
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: INK }}>
+                    <input type="checkbox" checked={bundleRules.channelDidLink.enabled} onChange={e => setBundleRules(prev => ({ ...prev, channelDidLink: { ...prev.channelDidLink, enabled: e.target.checked } }))} />
+                    Enable rule
+                  </label>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 120px', gap: 10, alignItems: 'end' }}>
+                  <div>
+                    <label style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: INK3, display: 'block', marginBottom: 4 }}>Channel Item</label>
+                    <select value={bundleRules.channelDidLink.channelItem} onChange={e => setBundleRules(prev => ({ ...prev, channelDidLink: { ...prev.channelDidLink, channelItem: e.target.value } }))} style={{ width: '100%', padding: '7px 10px', fontFamily: "'Inter', sans-serif", fontSize: 12, border: '1.5px solid ' + BORDER, background: SURFACE, borderRadius: 8, color: INK }}>
+                      {Object.keys(costDB.channels || {}).map(key => <option key={key} value={'channels.' + key}>{costDB.channels[key].label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: INK3, display: 'block', marginBottom: 4 }}>DID Item</label>
+                    <select value={bundleRules.channelDidLink.didItem} onChange={e => setBundleRules(prev => ({ ...prev, channelDidLink: { ...prev.channelDidLink, didItem: e.target.value } }))} style={{ width: '100%', padding: '7px 10px', fontFamily: "'Inter', sans-serif", fontSize: 12, border: '1.5px solid ' + BORDER, background: SURFACE, borderRadius: 8, color: INK }}>
+                      {Object.keys(costDB.numbers || {}).map(key => <option key={key} value={'numbers.' + key}>{costDB.numbers[key].label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: INK3, display: 'block', marginBottom: 4 }}>DID per Channel</label>
+                    <input type="number" min="0" value={bundleRules.channelDidLink.didPerChannel} onChange={e => setBundleRules(prev => ({ ...prev, channelDidLink: { ...prev.channelDidLink, didPerChannel: Math.max(0, Number(e.target.value) || 0) } }))} style={{ width: '100%', padding: '7px 10px', fontFamily: "'JetBrains Mono', monospace", fontSize: 12, border: '1.5px solid ' + BORDER, background: SURFACE, borderRadius: 8, color: INK, boxSizing: 'border-box' }} />
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Search */}
             <div style={{ marginBottom: 14, position: 'relative' }}>
