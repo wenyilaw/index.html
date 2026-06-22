@@ -44,6 +44,11 @@ const DEFAULT_COST_DB = {
     numberActivation: { internal: 20, external: 0, label: 'Number Activation Fee', unit: 'per number/one-time' },
     didInternational: { internal: 25, external: 0, label: 'International DID Number', unit: 'per number/month' },
   },
+  bundles: {
+    sipChannelDidBundle: { internal: 35, external: 0, label: 'SIP Channel + Local DID Bundle', unit: 'per bundle/month' },
+    sipChannelDidBundle20: { internal: 30, external: 0, label: 'SIP Channel + DID Bundle (20+)', unit: 'per bundle/month' },
+    sipChannelDidBundle50: { internal: 25, external: 0, label: 'SIP Channel + DID Bundle (50+)', unit: 'per bundle/month' },
+  },
   integration: {
     certifiedPBXSetup: { internal: 1500, external: 0, label: 'Certified IP-PBX Integration', unit: 'one-time' },
     nonCertifiedPBXSetup: { internal: 3500, external: 0, label: 'Non-Certified IP-PBX Integration', unit: 'one-time' },
@@ -101,37 +106,37 @@ const DEFAULT_SCENARIOS = [
     id: 'new-certified-ippbx', scenarioType: 'certified', name: 'New SIP Trunk + Certified IP-PBX',
     desc: 'Standard deployment with a pre-certified IP-PBX (e.g. Avaya, Cisco, Yeastar). Lowest integration risk.',
     icon: CheckCircle, color: GREEN, colorSoft: GREEN_SOFT,
-    items: ['sipTrunk.setupFee', 'sipTrunk.monthlyAccess', 'channels.perChannelMonthly', 'numbers.didLocal', 'numbers.numberActivation', 'integration.certifiedPBXSetup', 'integration.sipTestingCertified', 'professionalServices.siteSurvey', 'professionalServices.installationService', 'professionalServices.projectManagement'],
+    items: ['sipTrunk.setupFee', 'sipTrunk.monthlyAccess', 'bundles.sipChannelDidBundle', 'numbers.numberActivation', 'integration.certifiedPBXSetup', 'integration.sipTestingCertified', 'professionalServices.siteSurvey', 'professionalServices.installationService', 'professionalServices.projectManagement'],
   },
   {
     id: 'new-noncertified-ippbx', scenarioType: 'certified', name: 'New SIP Trunk + Non-Certified IP-PBX',
     desc: 'Deployment with an untested IP-PBX. Requires full interoperability testing and potential customisation.',
     icon: AlertTriangle, color: AMBER, colorSoft: '#FFFBEB',
-    items: ['sipTrunk.setupFee', 'sipTrunk.monthlyAccess', 'channels.perChannelMonthly', 'numbers.didLocal', 'numbers.numberActivation', 'integration.nonCertifiedPBXSetup', 'integration.sipTestingNonCertified', 'integration.interoperabilityTest', 'professionalServices.siteSurvey', 'professionalServices.installationService', 'professionalServices.projectManagement', 'professionalServices.networkAssessment'],
+    items: ['sipTrunk.setupFee', 'sipTrunk.monthlyAccess', 'bundles.sipChannelDidBundle', 'numbers.numberActivation', 'integration.nonCertifiedPBXSetup', 'integration.sipTestingNonCertified', 'integration.interoperabilityTest', 'professionalServices.siteSurvey', 'professionalServices.installationService', 'professionalServices.projectManagement', 'professionalServices.networkAssessment'],
   },
   {
     id: 'legacy-pbx-mediagw', scenarioType: 'certified', name: 'Legacy PBX + Media Gateway',
     desc: 'Connecting a traditional TDM/E1 PBX via a media gateway. Higher setup complexity, gateway rental applies.',
     icon: Server, color: ACCENT2, colorSoft: '#F5F3FF',
-    items: ['sipTrunk.setupFee', 'sipTrunk.monthlyAccess', 'channels.perChannelMonthly', 'numbers.didLocal', 'numbers.numberActivation', 'integration.legacyPBXSetup', 'integration.mediaGatewaySetup', 'integration.mediaGatewayRental', 'integration.sipTestingNonCertified', 'integration.interoperabilityTest', 'professionalServices.siteSurvey', 'professionalServices.installationService', 'professionalServices.projectManagement', 'professionalServices.networkAssessment'],
+    items: ['sipTrunk.setupFee', 'sipTrunk.monthlyAccess', 'bundles.sipChannelDidBundle', 'numbers.numberActivation', 'integration.legacyPBXSetup', 'integration.mediaGatewaySetup', 'integration.mediaGatewayRental', 'integration.sipTestingNonCertified', 'integration.interoperabilityTest', 'professionalServices.siteSurvey', 'professionalServices.installationService', 'professionalServices.projectManagement', 'professionalServices.networkAssessment'],
   },
   {
     id: 'redundant-sip', scenarioType: 'managed', name: 'SIP Trunk with Redundant Link',
     desc: 'Primary + secondary SIP trunk for high availability. Includes redundant link setup and monthly charges.',
     icon: Shield, color: ACCENT, colorSoft: ACCENT_SOFT,
-    items: ['sipTrunk.setupFee', 'sipTrunk.monthlyAccess', 'sipTrunk.redundantLinkSetup', 'sipTrunk.redundantLinkMonthly', 'channels.perChannelMonthly', 'numbers.didLocal', 'numbers.numberActivation', 'integration.certifiedPBXSetup', 'integration.sipTestingCertified', 'professionalServices.siteSurvey', 'professionalServices.installationService', 'professionalServices.projectManagement'],
+    items: ['sipTrunk.setupFee', 'sipTrunk.monthlyAccess', 'sipTrunk.redundantLinkSetup', 'sipTrunk.redundantLinkMonthly', 'bundles.sipChannelDidBundle', 'numbers.numberActivation', 'integration.certifiedPBXSetup', 'integration.sipTestingCertified', 'professionalServices.siteSurvey', 'professionalServices.installationService', 'professionalServices.projectManagement'],
   },
   {
     id: 'cloud-pbx-partner', scenarioType: 'managed', name: 'Partner Cloud PBX + SIP Trunk',
     desc: "Utilising a partner's cloud PBX platform (white-label UCaaS). Per-user seat model with SIP trunk backhaul.",
     icon: Globe, color: '#0891B2', colorSoft: '#ECFEFF',
-    items: ['sipTrunk.setupFee', 'sipTrunk.monthlyAccess', 'channels.perChannelMonthly', 'numbers.didLocal', 'numbers.numberActivation', 'cloudPBX.cloudPBXPerUser', 'cloudPBX.cloudPBXSetup', 'cloudPBX.cloudPBXIntegration', 'cloudPBX.cloudPBXTraining', 'professionalServices.projectManagement', 'professionalServices.trainingPerSession'],
+    items: ['sipTrunk.setupFee', 'sipTrunk.monthlyAccess', 'bundles.sipChannelDidBundle', 'numbers.numberActivation', 'cloudPBX.cloudPBXPerUser', 'cloudPBX.cloudPBXSetup', 'cloudPBX.cloudPBXIntegration', 'cloudPBX.cloudPBXTraining', 'professionalServices.projectManagement', 'professionalServices.trainingPerSession'],
   },
   {
     id: 'full-stack', scenarioType: 'addon', name: 'Full Stack: Redundant SIP + Cloud PBX + Legacy GW',
     desc: 'Maximum complexity: redundant SIP, cloud PBX for new sites, media gateway for legacy PBX. Full migration scenario.',
     icon: Phone, color: INK, colorSoft: '#F1F5F9',
-    items: ['sipTrunk.setupFee', 'sipTrunk.monthlyAccess', 'sipTrunk.redundantLinkSetup', 'sipTrunk.redundantLinkMonthly', 'channels.perChannelMonthly', 'numbers.didLocal', 'numbers.didTollFree', 'numbers.numberActivation', 'numbers.numberPorting', 'integration.legacyPBXSetup', 'integration.mediaGatewaySetup', 'integration.mediaGatewayRental', 'integration.sipTestingNonCertified', 'integration.interoperabilityTest', 'cloudPBX.cloudPBXPerUser', 'cloudPBX.cloudPBXSetup', 'cloudPBX.cloudPBXIntegration', 'cloudPBX.cloudPBXTraining', 'professionalServices.siteSurvey', 'professionalServices.networkAssessment', 'professionalServices.installationService', 'professionalServices.projectManagement', 'professionalServices.trainingPerSession', 'professionalServices.supportPremium'],
+    items: ['sipTrunk.setupFee', 'sipTrunk.monthlyAccess', 'sipTrunk.redundantLinkSetup', 'sipTrunk.redundantLinkMonthly', 'bundles.sipChannelDidBundle', 'numbers.didTollFree', 'numbers.numberActivation', 'numbers.numberPorting', 'integration.legacyPBXSetup', 'integration.mediaGatewaySetup', 'integration.mediaGatewayRental', 'integration.sipTestingNonCertified', 'integration.interoperabilityTest', 'cloudPBX.cloudPBXPerUser', 'cloudPBX.cloudPBXSetup', 'cloudPBX.cloudPBXIntegration', 'cloudPBX.cloudPBXTraining', 'professionalServices.siteSurvey', 'professionalServices.networkAssessment', 'professionalServices.installationService', 'professionalServices.projectManagement', 'professionalServices.trainingPerSession', 'professionalServices.supportPremium'],
   },
 ];
 
@@ -156,6 +161,7 @@ const SCENARIO_SECTION_OPTIONS = [
 const SCENARIO_SECTION_LABELS = SCENARIO_SECTION_OPTIONS.reduce((acc, section) => ({ ...acc, [section.id]: section.label }), {});
 
 const LINE_ITEM_SECTION_OPTIONS = [
+  'SIP Channels + DIDs Bundle',
   'SIP Channels',
   'SIP DIDs',
   'Monthly Rental Charges(Recurring)',
@@ -167,6 +173,7 @@ const LINE_ITEM_SECTION_OPTIONS = [
 
 const defaultLineItemSection = (dotPath = '') => {
   const category = dotPath.split('.')[0];
+  if (category === 'bundles') return 'SIP Channels + DIDs Bundle';
   if (category === 'sipTrunk' || category === 'integration') return 'SIP Channels';
   if (category === 'channels' || category === 'numbers' || category === 'cloudPBX') return 'SIP DIDs';
   if (category === 'professionalServices') return 'Monthly Rental Charges(Recurring)';
@@ -174,17 +181,60 @@ const defaultLineItemSection = (dotPath = '') => {
   return 'Add-ons';
 };
 
+const mergeCostDB = (savedDb = {}) => {
+  const merged = { ...DEFAULT_COST_DB };
+  Object.keys(savedDb || {}).forEach(cat => {
+    merged[cat] = { ...(DEFAULT_COST_DB[cat] || {}), ...(savedDb[cat] || {}) };
+  });
+  return merged;
+};
+
+const migrateScenarioBundles = (scenario = {}) => {
+  const items = Array.isArray(scenario.items) ? [...scenario.items] : [];
+  const itemSettings = { ...(scenario.itemSettings || {}) };
+  const hasChannel = items.includes('channels.perChannelMonthly');
+  const hasDid = items.includes('numbers.didLocal');
+  const hasBundle = items.includes('bundles.sipChannelDidBundle');
+
+  if (hasChannel && hasDid && !hasBundle) {
+    const channelSetting = itemSettings['channels.perChannelMonthly'] || {};
+    const didSetting = itemSettings['numbers.didLocal'] || {};
+    itemSettings['bundles.sipChannelDidBundle'] = {
+      defaultQty: channelSetting.defaultQty ?? didSetting.defaultQty ?? 1,
+      quantityEditable: channelSetting.quantityEditable ?? didSetting.quantityEditable ?? true,
+      minQty: Math.max(Number(channelSetting.minQty ?? 0), Number(didSetting.minQty ?? 0)),
+      maxQty: Math.min(Number(channelSetting.maxQty ?? 9999), Number(didSetting.maxQty ?? 9999)),
+      mandatory: channelSetting.mandatory ?? didSetting.mandatory ?? false,
+      lineSection: 'SIP Channels + DIDs Bundle',
+    };
+    delete itemSettings['channels.perChannelMonthly'];
+    delete itemSettings['numbers.didLocal'];
+    return {
+      ...scenario,
+      items: [...items.filter(i => i !== 'channels.perChannelMonthly' && i !== 'numbers.didLocal'), 'bundles.sipChannelDidBundle'],
+      itemSettings,
+    };
+  }
+
+  return scenario;
+};
+
 const normaliseScenario = (scenario, fallback = {}) => {
-  const fallbackIconKey = fallback.iconKey || Object.keys(SCENARIO_ICON_MAP).find(k => SCENARIO_ICON_MAP[k] === fallback.icon) || 'CheckCircle';
+  const migratedScenario = migrateScenarioBundles(scenario || {});
+  const migratedFallback = migrateScenarioBundles(fallback || {});
+  const merged = { ...migratedFallback, ...migratedScenario };
+  const fallbackIconKey = migratedFallback.iconKey || Object.keys(SCENARIO_ICON_MAP).find(k => SCENARIO_ICON_MAP[k] === migratedFallback.icon) || 'CheckCircle';
+  const rawItems = Array.isArray(merged.items) ? merged.items : [];
+  const rawItemSettings = { ...(migratedFallback.itemSettings || {}), ...(migratedScenario.itemSettings || {}) };
+
   return {
-    ...fallback,
-    ...scenario,
-    iconKey: scenario.iconKey || Object.keys(SCENARIO_ICON_MAP).find(k => SCENARIO_ICON_MAP[k] === scenario.icon) || fallbackIconKey,
-    scenarioType: scenario.scenarioType || fallback.scenarioType || 'certified',
-    color: scenario.color || fallback.color || ACCENT,
-    colorSoft: scenario.colorSoft || fallback.colorSoft || ACCENT_SOFT,
-    items: Array.isArray(scenario.items) ? scenario.items : [],
-    itemSettings: Object.fromEntries(Object.entries(scenario.itemSettings || fallback.itemSettings || {}).map(([path, setting]) => [path, {
+    ...merged,
+    iconKey: merged.iconKey || Object.keys(SCENARIO_ICON_MAP).find(k => SCENARIO_ICON_MAP[k] === merged.icon) || fallbackIconKey,
+    scenarioType: merged.scenarioType || 'certified',
+    color: merged.color || ACCENT,
+    colorSoft: merged.colorSoft || ACCENT_SOFT,
+    items: rawItems,
+    itemSettings: Object.fromEntries(Object.entries(rawItemSettings).map(([path, setting]) => [path, {
       defaultQty: setting.defaultQty ?? 1,
       quantityEditable: setting.quantityEditable ?? true,
       minQty: setting.minQty ?? 0,
@@ -221,13 +271,14 @@ const catLabels = {
   sipTrunk: 'SIP Trunk',
   channels: 'Channels',
   numbers: 'Numbers / DID',
+  bundles: 'SIP Channel + DID Bundles',
   integration: 'Integration & Testing',
   cloudPBX: 'Cloud PBX',
   professionalServices: 'Professional Services',
   callRates: 'Call Rates',
 };
 
-const catOrder = ['sipTrunk', 'channels', 'numbers', 'integration', 'cloudPBX', 'professionalServices', 'callRates'];
+const catOrder = ['sipTrunk', 'channels', 'numbers', 'bundles', 'integration', 'cloudPBX', 'professionalServices', 'callRates'];
 
 const unitOptions = ['one-time', 'per month', 'per trunk/month', 'per link/month', 'per channel/month', 'per number/month', 'per number/one-time', 'per user/month', 'per unit/month', 'per day', 'per session', 'per site/one-time', 'per minute', 'per message', 'included/month'];
 
@@ -250,7 +301,7 @@ export default function SIPPricingPlaybook() {
   const [costDB, setCostDB] = useState(() => {
     try {
       const saved = localStorage.getItem('sipCostDB_v3');
-      return saved ? JSON.parse(saved) : DEFAULT_COST_DB;
+      return saved ? mergeCostDB(JSON.parse(saved)) : DEFAULT_COST_DB;
     } catch (e) { return DEFAULT_COST_DB; }
   });
   const [scenarios, setScenarios] = useState(() => {
