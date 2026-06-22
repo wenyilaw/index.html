@@ -99,7 +99,7 @@ const ROLE_COLORS = { admin: ACCENT, editor: ACCENT2, sales: GREEN };
 const DEFAULT_SCENARIOS = [
   {
     id: 'new-certified-ippbx', scenarioType: 'certified', name: 'New SIP Trunk + Certified IP-PBX',
-    desc: 'New SIP Trunk deployment only with pre-certified IP-PBX (e.g. Avaya, Cisco, Yeastar) or non-certified PBX.',
+    desc: 'Standard deployment with a pre-certified IP-PBX (e.g. Avaya, Cisco, Yeastar). Lowest integration risk.',
     icon: CheckCircle, color: GREEN, colorSoft: GREEN_SOFT,
     items: ['sipTrunk.setupFee', 'sipTrunk.monthlyAccess', 'channels.perChannelMonthly', 'numbers.didLocal', 'numbers.numberActivation', 'integration.certifiedPBXSetup', 'integration.sipTestingCertified', 'professionalServices.siteSurvey', 'professionalServices.installationService', 'professionalServices.projectManagement'],
   },
@@ -148,12 +148,30 @@ const SCENARIO_COLOR_OPTIONS = [
 ];
 
 const SCENARIO_SECTION_OPTIONS = [
-  { id: 'certified', label: 'SIP Trunk only', desc: 'Certified or non-certified customer-owned IP-PBX, SBC or MGW deployment scenarios.' },
+  { id: 'certified', label: 'Certified IP-PBX / SBC / MGW', desc: 'Certified customer-owned IP-PBX, SBC or MGW deployment scenarios.' },
   { id: 'managed', label: 'Managed IP-PBX / SBC / MGW', desc: 'YES-managed voice platform, managed SBC, managed MGW and recurring support scenarios.' },
   { id: 'addon', label: 'Add-On to Existing Scenario', desc: 'Optional add-ons that can be attached to a selected certified or managed scenario.' },
 ];
 
 const SCENARIO_SECTION_LABELS = SCENARIO_SECTION_OPTIONS.reduce((acc, section) => ({ ...acc, [section.id]: section.label }), {});
+
+const LINE_ITEM_SECTION_OPTIONS = [
+  'Core Components',
+  'Licenses & Capacity',
+  'Professional Services',
+  'Managed Services',
+  'Add-ons',
+  'Call Charges',
+];
+
+const defaultLineItemSection = (dotPath = '') => {
+  const category = dotPath.split('.')[0];
+  if (category === 'sipTrunk' || category === 'integration') return 'Core Components';
+  if (category === 'channels' || category === 'numbers' || category === 'cloudPBX') return 'Licenses & Capacity';
+  if (category === 'professionalServices') return 'Professional Services';
+  if (category === 'callRates') return 'Call Charges';
+  return 'Add-ons';
+};
 
 const normaliseScenario = (scenario, fallback = {}) => {
   const fallbackIconKey = fallback.iconKey || Object.keys(SCENARIO_ICON_MAP).find(k => SCENARIO_ICON_MAP[k] === fallback.icon) || 'CheckCircle';
@@ -165,7 +183,14 @@ const normaliseScenario = (scenario, fallback = {}) => {
     color: scenario.color || fallback.color || ACCENT,
     colorSoft: scenario.colorSoft || fallback.colorSoft || ACCENT_SOFT,
     items: Array.isArray(scenario.items) ? scenario.items : [],
-    itemSettings: scenario.itemSettings || fallback.itemSettings || {},
+    itemSettings: Object.fromEntries(Object.entries(scenario.itemSettings || fallback.itemSettings || {}).map(([path, setting]) => [path, {
+      defaultQty: setting.defaultQty ?? 1,
+      quantityEditable: setting.quantityEditable ?? true,
+      minQty: setting.minQty ?? 0,
+      maxQty: setting.maxQty ?? 9999,
+      mandatory: setting.mandatory ?? false,
+      lineSection: setting.lineSection || defaultLineItemSection(path),
+    }])),
   };
 };
 
@@ -434,7 +459,7 @@ export default function SIPPricingPlaybook() {
         delete itemSettings[dotPath];
         return { ...prev, items: items.filter(i => i !== dotPath), itemSettings };
       }
-      itemSettings[dotPath] = { defaultQty: 1, quantityEditable: true, minQty: 0, maxQty: 9999, mandatory: false };
+      itemSettings[dotPath] = { defaultQty: 1, quantityEditable: true, minQty: 0, maxQty: 9999, mandatory: false, lineSection: defaultLineItemSection(dotPath) };
       return { ...prev, items: [...items, dotPath], itemSettings };
     });
   };
@@ -445,7 +470,7 @@ export default function SIPPricingPlaybook() {
       itemSettings: {
         ...(prev.itemSettings || {}),
         [dotPath]: {
-          ...((prev.itemSettings || {})[dotPath] || { defaultQty: 1, quantityEditable: true, minQty: 0, maxQty: 9999, mandatory: false }),
+          ...((prev.itemSettings || {})[dotPath] || { defaultQty: 1, quantityEditable: true, minQty: 0, maxQty: 9999, mandatory: false, lineSection: defaultLineItemSection(dotPath) }),
           [field]: value,
         }
       }
@@ -457,8 +482,11 @@ export default function SIPPricingPlaybook() {
   };
 
   const getScenarioItemSetting = (dotPath) => {
-    if (isCustomScenario || !scenarioObj) return { defaultQty: 0, quantityEditable: true, minQty: 0, maxQty: 9999, mandatory: false };
-    return (scenarioObj.itemSettings || {})[dotPath] || { defaultQty: 0, quantityEditable: true, minQty: 0, maxQty: 9999, mandatory: false };
+    const defaultSetting = { defaultQty: 0, quantityEditable: true, minQty: 0, maxQty: 9999, mandatory: false, lineSection: defaultLineItemSection(dotPath) };
+    if (isCustomScenario) return defaultSetting;
+    const ownerScenarios = [scenarioObj, ...selectedAddOnScenarios].filter(Boolean);
+    const owner = ownerScenarios.find(sc => (sc.items || []).includes(dotPath));
+    return { ...defaultSetting, ...((owner?.itemSettings || {})[dotPath] || {}) };
   };
 
   const applyScenarioColor = (colorName) => {
@@ -576,6 +604,20 @@ export default function SIPPricingPlaybook() {
     return Array.from(new Set([...baseItems, ...addOnItems]));
   };
 
+  const getActiveLineGroups = () => {
+    const grouped = LINE_ITEM_SECTION_OPTIONS.map(section => ({ section, items: [] }));
+    const extra = [];
+    getActiveItems().forEach(dotPath => {
+      const setting = getScenarioItemSetting(dotPath);
+      const section = setting.lineSection || defaultLineItemSection(dotPath);
+      const target = grouped.find(g => g.section === section);
+      if (target) target.items.push(dotPath);
+      else extra.push(dotPath);
+    });
+    if (extra.length) grouped.push({ section: 'Other', items: extra });
+    return grouped.filter(g => g.items.length > 0);
+  };
+
   const getQty = (dotPath) => {
     if (qtyInputs[dotPath] !== undefined) return qtyInputs[dotPath];
     const setting = getScenarioItemSetting(dotPath);
@@ -643,7 +685,7 @@ export default function SIPPricingPlaybook() {
       const item = getCostItem(costDB, dotPath);
       const qty = getQty(dotPath);
       const lt = calcLineTotal(dotPath);
-      return { dotPath, label: item?.label || dotPath, unit: item?.unit || '', qty, internal: lt.internal, external: lt.external, sell: lt.sell };
+      return { dotPath, label: item?.label || dotPath, section: getScenarioItemSetting(dotPath).lineSection || defaultLineItemSection(dotPath), unit: item?.unit || '', qty, internal: lt.internal, external: lt.external, sell: lt.sell };
     }).filter(l => l.qty > 0);
     if (lines.length === 0) return;
     const ref = quoteRef || 'QT-' + Date.now().toString(36).toUpperCase();
@@ -662,6 +704,55 @@ export default function SIPPricingPlaybook() {
 
   const duplicateQuote = (idx) => {
     setQuoteItems(prev => [...prev, { ...prev[idx], date: new Date().toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' }) }]);
+  };
+
+  // ─── EXCEL EXPORT ───────────────────────────────────────
+  const exportQuoteToExcel = (qi) => {
+    const esc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const totalSell = qi.lines.reduce((s, l) => s + l.sell, 0);
+    const totalCost = qi.lines.reduce((s, l) => s + l.internal + l.external, 0);
+    const totalMargin = totalSell - totalCost;
+    const sections = Array.from(new Set(qi.lines.map(l => l.section || 'Line Items')));
+    const lineRows = sections.map(section => {
+      const rows = qi.lines.filter(l => (l.section || 'Line Items') === section).map(l => (
+        '<tr>' +
+        '<td>' + esc(section) + '</td>' +
+        '<td>' + esc(l.label) + '</td>' +
+        '<td>' + esc(l.unit) + '</td>' +
+        '<td style="mso-number-format:\"0\";">' + l.qty + '</td>' +
+        '<td style="mso-number-format:\"#,##0.00\";">' + (l.internal + l.external).toFixed(2) + '</td>' +
+        '<td style="mso-number-format:\"#,##0.00\";">' + l.sell.toFixed(2) + '</td>' +
+        '<td style="mso-number-format:\"0.0%\";">' + (l.sell > 0 ? ((l.sell - l.internal - l.external) / l.sell).toFixed(4) : '0') + '</td>' +
+        '</tr>'
+      )).join('');
+      return rows;
+    }).join('');
+
+    const html = '<html><head><meta charset="utf-8" /></head><body>' +
+      '<table border="1">' +
+      '<tr><th colspan="7" style="font-size:16px;">SIP Services Quotation</th></tr>' +
+      '<tr><td><b>Reference</b></td><td colspan="6">' + esc(qi.ref) + '</td></tr>' +
+      '<tr><td><b>Customer</b></td><td colspan="6">' + esc(qi.customer) + '</td></tr>' +
+      '<tr><td><b>Scenario</b></td><td colspan="6">' + esc(qi.scenario) + '</td></tr>' +
+      '<tr><td><b>Date</b></td><td colspan="6">' + esc(qi.date) + '</td></tr>' +
+      '<tr><td><b>Validity</b></td><td colspan="6">' + esc(qi.validity) + ' days</td></tr>' +
+      '<tr></tr>' +
+      '<tr><th>Section</th><th>Item</th><th>Unit</th><th>Qty</th><th>Cost (RM)</th><th>Sell (RM)</th><th>Margin %</th></tr>' +
+      lineRows +
+      '<tr></tr>' +
+      '<tr><td colspan="4"><b>Total Cost</b></td><td style="mso-number-format:\"#,##0.00\";">' + totalCost.toFixed(2) + '</td><td></td><td></td></tr>' +
+      '<tr><td colspan="5"><b>Total Sell</b></td><td style="mso-number-format:\"#,##0.00\";">' + totalSell.toFixed(2) + '</td><td></td></tr>' +
+      '<tr><td colspan="5"><b>Absolute Margin</b></td><td style="mso-number-format:\"#,##0.00\";">' + totalMargin.toFixed(2) + '</td><td style="mso-number-format:\"0.0%\";">' + (totalSell > 0 ? (totalMargin / totalSell).toFixed(4) : '0') + '</td></tr>' +
+      '</table></body></html>';
+    const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (qi.ref || 'quotation') + '.xls';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   // ─── PDF EXPORT ─────────────────────────────────────────
@@ -838,6 +929,8 @@ export default function SIPPricingPlaybook() {
     { id: 'quotes', label: 'Saved Quotes', icon: FileText, roles: ['admin', 'editor', 'sales'] },
     { id: 'users', label: 'User Management', icon: Users, roles: ['admin'] },
   ].filter(t => t.roles.includes(currentUser.role));
+
+  const visibleCostCategories = currentUser.role === 'sales' ? ['callRates'] : catOrder;
 
   return (
     <div style={{ minHeight: '100vh', background: BG, fontFamily: "Inter, system-ui, sans-serif", color: INK2 }}>
@@ -1055,31 +1148,36 @@ export default function SIPPricingPlaybook() {
                   <div style={{ display: 'grid', gridTemplateColumns: '2.4fr 60px 90px 90px 90px 70px', padding: '8px 18px', borderBottom: '2px solid ' + INK, fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: INK3, background: BG }}>
                     <span>Line Item</span><span style={{ textAlign: 'center' }}>Qty</span><span style={{ textAlign: 'right' }}>Int. Cost</span><span style={{ textAlign: 'right' }}>Ext. Cost</span><span style={{ textAlign: 'right' }}>Sell Price</span><span style={{ textAlign: 'right' }}>Margin</span>
                   </div>
-                  {getActiveItems().map(dotPath => {
-                    const item = getCostItem(costDB, dotPath);
-                    if (!item) return null;
-                    const lt = calcLineTotal(dotPath);
-                    const lineMargin = lt.sell > 0 ? ((lt.sell - lt.internal - lt.external) / lt.sell * 100) : 0;
-                    const hasQty = getQty(dotPath) > 0;
-                    const qtySetting = getScenarioItemSetting(dotPath);
-                    return (
-                      <div key={dotPath} style={{ display: 'grid', gridTemplateColumns: '2.4fr 60px 90px 90px 90px 70px', padding: '8px 18px', borderBottom: '1px solid ' + BORDER, alignItems: 'center', background: hasQty ? ACCENT_SOFT : SURFACE, transition: 'background 0.15s' }}>
-                        <div>
-                          <span style={{ fontSize: 12, fontWeight: 500, color: INK }}>{item.label}</span>
-                          <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, color: INK3, marginLeft: 6, letterSpacing: '0.04em' }}>{item.unit}</span>
-                        </div>
-                        <div style={{ textAlign: 'center' }}>
-                          <input type="number" min={qtySetting.minQty || 0} max={qtySetting.maxQty || 9999} value={getQty(dotPath) || ''} onChange={e => setQty(dotPath, e.target.value)} placeholder="0" disabled={!qtySetting.quantityEditable}
-                            style={{ width: 48, padding: '3px 5px', fontFamily: "'JetBrains Mono', monospace", fontSize: 11, border: '1.5px solid ' + BORDER, background: qtySetting.quantityEditable ? SURFACE : BG, borderRadius: 6, textAlign: 'center', color: qtySetting.quantityEditable ? INK : INK3, cursor: qtySetting.quantityEditable ? 'text' : 'not-allowed' }} />
-                          {!qtySetting.quantityEditable && <span title="Quantity locked by admin" style={{ fontSize: 10, color: INK3, marginLeft: 3 }}>🔒</span>}
-                        </div>
-                        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, textAlign: 'right', color: INK2 }}>{formatMYR(lt.internal)}</span>
-                        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, textAlign: 'right', color: INK2 }}>{formatMYR(lt.external)}</span>
-                        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, textAlign: 'right', color: ACCENT, fontWeight: 600 }}>{formatMYR(lt.sell)}</span>
-                        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, textAlign: 'right', color: lineMargin >= marginPct ? GREEN : RED, fontWeight: 500 }}>{lt.sell > 0 ? lineMargin.toFixed(1) + '%' : '\u2014'}</span>
-                      </div>
-                    );
-                  })}
+                  {getActiveLineGroups().map(group => (
+                    <React.Fragment key={group.section}>
+                      <div style={{ padding: '7px 18px', background: INK, color: SURFACE, fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{group.section}</div>
+                      {group.items.map(dotPath => {
+                        const item = getCostItem(costDB, dotPath);
+                        if (!item) return null;
+                        const lt = calcLineTotal(dotPath);
+                        const lineMargin = lt.sell > 0 ? ((lt.sell - lt.internal - lt.external) / lt.sell * 100) : 0;
+                        const hasQty = getQty(dotPath) > 0;
+                        const qtySetting = getScenarioItemSetting(dotPath);
+                        return (
+                          <div key={dotPath} style={{ display: 'grid', gridTemplateColumns: '2.4fr 60px 90px 90px 90px 70px', padding: '8px 18px', borderBottom: '1px solid ' + BORDER, alignItems: 'center', background: hasQty ? ACCENT_SOFT : SURFACE, transition: 'background 0.15s' }}>
+                            <div>
+                              <span style={{ fontSize: 12, fontWeight: 500, color: INK }}>{item.label}</span>
+                              <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, color: INK3, marginLeft: 6, letterSpacing: '0.04em' }}>{item.unit}</span>
+                            </div>
+                            <div style={{ textAlign: 'center' }}>
+                              <input type="number" min={qtySetting.minQty || 0} max={qtySetting.maxQty || 9999} value={getQty(dotPath) || ''} onChange={e => setQty(dotPath, e.target.value)} placeholder="0" disabled={!qtySetting.quantityEditable}
+                                style={{ width: 48, padding: '3px 5px', fontFamily: "'JetBrains Mono', monospace", fontSize: 11, border: '1.5px solid ' + BORDER, background: qtySetting.quantityEditable ? SURFACE : BG, borderRadius: 6, textAlign: 'center', color: qtySetting.quantityEditable ? INK : INK3, cursor: qtySetting.quantityEditable ? 'text' : 'not-allowed' }} />
+                              {!qtySetting.quantityEditable && <span title="Quantity locked by admin" style={{ fontSize: 10, color: INK3, marginLeft: 3 }}>🔒</span>}
+                            </div>
+                            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, textAlign: 'right', color: INK2 }}>{formatMYR(lt.internal)}</span>
+                            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, textAlign: 'right', color: INK2 }}>{formatMYR(lt.external)}</span>
+                            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, textAlign: 'right', color: ACCENT, fontWeight: 600 }}>{formatMYR(lt.sell)}</span>
+                            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, textAlign: 'right', color: lineMargin >= marginPct ? GREEN : RED, fontWeight: 500 }}>{lt.sell > 0 ? lineMargin.toFixed(1) + '%' : '\u2014'}</span>
+                          </div>
+                        );
+                      })}
+                    </React.Fragment>
+                  ))}
                   {/* Grand total */}
                   <div style={{ display: 'grid', gridTemplateColumns: '2.4fr 60px 90px 90px 90px 70px', padding: '12px 18px', borderTop: '2px solid ' + INK, background: BG }}>
                     <span style={{ fontWeight: 800, fontSize: 14, color: INK }}>Grand Total</span>
@@ -1136,7 +1234,7 @@ export default function SIPPricingPlaybook() {
             <div style={{ borderBottom: '2px solid ' + INK, paddingBottom: 10, marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 }}>
               <div>
                 <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: ACCENT, letterSpacing: '0.1em', textTransform: 'uppercase', fontWeight: 600, margin: 0 }}>02 / Cost Database</p>
-                <h2 style={{ fontWeight: 800, fontSize: 30, color: INK, letterSpacing: '-0.025em', lineHeight: 1.05, margin: '6px 0 0' }}>Unit cost management</h2>
+                <h2 style={{ fontWeight: 800, fontSize: 30, color: INK, letterSpacing: '-0.025em', lineHeight: 1.05, margin: '6px 0 0' }}>{currentUser.role === 'sales' ? 'Call rate reference' : 'Unit cost management'}</h2>
               </div>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                 {canEditDB && (
@@ -1179,11 +1277,11 @@ export default function SIPPricingPlaybook() {
             <p style={{ fontSize: 13, color: INK3, lineHeight: 1.6, maxWidth: 600, marginBottom: 16 }}>
               {canEditDB
                 ? 'Set internal cost (carrier/vendor) and external cost (third-party pass-through). Sales uses these for margin markup.'
-                : 'View current unit costs. Contact Engineering or Admin to request changes.'}
+                : currentUser.role === 'sales' ? 'Sales can view Call Rates only. Internal cost database categories are hidden.' : 'View current unit costs. Contact Engineering or Admin to request changes.'}
             </p>
 
             {/* Category sections */}
-            {catOrder.filter(cat => costDB[cat]).map(cat => {
+            {visibleCostCategories.filter(cat => costDB[cat]).map(cat => {
               const items = Object.entries(costDB[cat]);
               const filteredItems = dbSearch ? items.filter(([, item]) => item.label.toLowerCase().includes(dbSearch.toLowerCase())) : items;
               if (filteredItems.length === 0 && dbSearch) return null;
@@ -1299,7 +1397,7 @@ export default function SIPPricingPlaybook() {
               </div>
               <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                 <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-                  {Object.values(costDB).reduce((s, c) => s + Object.keys(c).length, 0)} items across {Object.keys(costDB).length} categories
+                  {visibleCostCategories.reduce((s, cat) => s + Object.keys(costDB[cat] || {}).length, 0)} visible items across {visibleCostCategories.length} categor{visibleCostCategories.length === 1 ? 'y' : 'ies'}
                 </div>
               </div>
             </div>
@@ -1395,10 +1493,13 @@ export default function SIPPricingPlaybook() {
                           const checked = (scenarioForm.items || []).includes(dotPath);
                           const setting = (scenarioForm.itemSettings || {})[dotPath] || { defaultQty: 1, quantityEditable: true, minQty: 0, maxQty: 9999, mandatory: false };
                           return (
-                            <div key={dotPath} style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1.6fr) 70px 95px 70px 70px 90px', gap: 6, alignItems: 'center', padding: '7px 8px', border: '1px solid ' + (checked ? ACCENT + '55' : BORDER), borderRadius: 7, background: checked ? ACCENT_SOFT : SURFACE }}>
+                            <div key={dotPath} style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1.6fr) 140px 70px 95px 70px 70px 90px', gap: 6, alignItems: 'center', padding: '7px 8px', border: '1px solid ' + (checked ? ACCENT + '55' : BORDER), borderRadius: 7, background: checked ? ACCENT_SOFT : SURFACE }}>
                               <button onClick={() => toggleScenarioItem(dotPath)} style={{ textAlign: 'left', fontSize: 11, padding: '5px 8px', borderRadius: 6, cursor: 'pointer', fontWeight: 600, border: checked ? '1.5px solid ' + ACCENT : '1px solid ' + BORDER, background: checked ? SURFACE : BG, color: checked ? ACCENT : INK3 }}>
                                 {checked ? '✓ ' : ''}{costDB[cat][key].label}
                               </button>
+                              <select disabled={!checked} value={setting.lineSection || defaultLineItemSection(dotPath)} onChange={e => updateScenarioItemSetting(dotPath, 'lineSection', e.target.value)} style={{ width: '100%', padding: '5px', fontFamily: "'Inter', sans-serif", fontSize: 11, border: '1.5px solid ' + BORDER, borderRadius: 6, background: checked ? SURFACE : BG }}>
+                                {LINE_ITEM_SECTION_OPTIONS.map(section => <option key={section} value={section}>{section}</option>)}
+                              </select>
                               <input disabled={!checked} type="number" value={setting.defaultQty ?? 1} min="0" onChange={e => updateScenarioItemSetting(dotPath, 'defaultQty', Math.max(0, Number(e.target.value) || 0))} style={{ width: '100%', padding: '5px', fontFamily: "'JetBrains Mono', monospace", fontSize: 11, border: '1.5px solid ' + BORDER, borderRadius: 6, background: checked ? SURFACE : BG }} title="Default Qty" />
                               <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: checked ? INK2 : INK3 }}>
                                 <input disabled={!checked} type="checkbox" checked={!!setting.quantityEditable} onChange={e => updateScenarioItemSetting(dotPath, 'quantityEditable', e.target.checked)} /> Editable
@@ -1414,8 +1515,8 @@ export default function SIPPricingPlaybook() {
                       </div>
                     </div>
                   ))}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px,1.6fr) 70px 95px 70px 70px 90px', gap: 6, marginTop: 8, fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: INK3, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                    <span>Item</span><span>Default</span><span>Qty Mode</span><span>Min</span><span>Max</span><span>Mandatory</span>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px,1.6fr) 140px 70px 95px 70px 70px 90px', gap: 6, marginTop: 8, fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: INK3, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    <span>Item</span><span>Section</span><span>Default</span><span>Qty Mode</span><span>Min</span><span>Max</span><span>Mandatory</span>
                   </div>
                 </div>
 
@@ -1501,6 +1602,9 @@ export default function SIPPricingPlaybook() {
                           <button onClick={() => exportQuoteToPDF(qi)} title="Export PDF" style={{ background: SURFACE, border: '1.5px solid ' + BORDER, borderRadius: 6, padding: '5px 7px', cursor: 'pointer', color: INK3 }}>
                             <Printer style={{ width: 13, height: 13 }} />
                           </button>
+                          <button onClick={() => exportQuoteToExcel(qi)} title="Export Excel" style={{ background: SURFACE, border: '1.5px solid ' + BORDER, borderRadius: 6, padding: '5px 7px', cursor: 'pointer', color: GREEN }}>
+                            XLS
+                          </button>
                           <button onClick={() => duplicateQuote(idx)} title="Duplicate" style={{ background: SURFACE, border: '1.5px solid ' + BORDER, borderRadius: 6, padding: '5px 7px', cursor: 'pointer', color: INK3 }}>
                             <Copy style={{ width: 13, height: 13 }} />
                           </button>
@@ -1510,11 +1614,12 @@ export default function SIPPricingPlaybook() {
                         </div>
                       </div>
                       <div style={{ padding: '0 18px' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 50px 80px 80px 70px', padding: '5px 0', borderBottom: '1px solid ' + BORDER, fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: INK3 }}>
-                          <span>Item</span><span style={{ textAlign: 'center' }}>Qty</span><span style={{ textAlign: 'right' }}>Cost</span><span style={{ textAlign: 'right' }}>Sell</span><span style={{ textAlign: 'right' }}>Margin</span>
+                        <div style={{ display: 'grid', gridTemplateColumns: '110px 2fr 50px 80px 80px 70px', padding: '5px 0', borderBottom: '1px solid ' + BORDER, fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: INK3 }}>
+                          <span>Section</span><span>Item</span><span style={{ textAlign: 'center' }}>Qty</span><span style={{ textAlign: 'right' }}>Cost</span><span style={{ textAlign: 'right' }}>Sell</span><span style={{ textAlign: 'right' }}>Margin</span>
                         </div>
                         {qi.lines.map((l, li) => (
-                          <div key={li} style={{ display: 'grid', gridTemplateColumns: '2fr 50px 80px 80px 70px', padding: '5px 0', borderBottom: '1px solid ' + BORDER }}>
+                          <div key={li} style={{ display: 'grid', gridTemplateColumns: '110px 2fr 50px 80px 80px 70px', padding: '5px 0', borderBottom: '1px solid ' + BORDER }}>
+                            <span style={{ fontSize: 10, color: INK3, fontWeight: 600 }}>{l.section || 'Line Items'}</span>
                             <span style={{ fontSize: 11, color: INK, fontWeight: 500 }}>{l.label}</span>
                             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, textAlign: 'center', color: INK2 }}>{l.qty}</span>
                             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, textAlign: 'right', color: INK2 }}>{formatMYR(l.internal + l.external)}</span>
@@ -1523,8 +1628,9 @@ export default function SIPPricingPlaybook() {
                           </div>
                         ))}
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '2fr 50px 80px 80px 70px', padding: '8px 18px', borderTop: '2px solid ' + INK, background: BG }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '110px 2fr 50px 80px 80px 70px', padding: '8px 18px', borderTop: '2px solid ' + INK, background: BG }}>
                         <span style={{ fontWeight: 700, fontSize: 12, color: INK }}>Total</span>
+                        <span />
                         <span />
                         <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, textAlign: 'right', color: INK, fontWeight: 600 }}>{formatMYR(totalCost)}</span>
                         <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, textAlign: 'right', color: ACCENT, fontWeight: 700 }}>{formatMYR(totalSell)}</span>
