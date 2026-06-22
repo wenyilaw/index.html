@@ -96,7 +96,7 @@ const ROLE_COLORS = { admin: ACCENT, editor: ACCENT2, sales: GREEN };
 // ═══════════════════════════════════════════════════════════════
 // SCENARIOS
 // ═══════════════════════════════════════════════════════════════
-const SCENARIOS = [
+const DEFAULT_SCENARIOS = [
   {
     id: 'new-certified-ippbx', name: 'New SIP Trunk + Certified IP-PBX',
     desc: 'Standard deployment with a pre-certified IP-PBX (e.g. Avaya, Cisco, Yeastar). Lowest integration risk.',
@@ -134,6 +134,37 @@ const SCENARIOS = [
     items: ['sipTrunk.setupFee', 'sipTrunk.monthlyAccess', 'sipTrunk.redundantLinkSetup', 'sipTrunk.redundantLinkMonthly', 'channels.perChannelMonthly', 'numbers.didLocal', 'numbers.didTollFree', 'numbers.numberActivation', 'numbers.numberPorting', 'integration.legacyPBXSetup', 'integration.mediaGatewaySetup', 'integration.mediaGatewayRental', 'integration.sipTestingNonCertified', 'integration.interoperabilityTest', 'cloudPBX.cloudPBXPerUser', 'cloudPBX.cloudPBXSetup', 'cloudPBX.cloudPBXIntegration', 'cloudPBX.cloudPBXTraining', 'professionalServices.siteSurvey', 'professionalServices.networkAssessment', 'professionalServices.installationService', 'professionalServices.projectManagement', 'professionalServices.trainingPerSession', 'professionalServices.supportPremium'],
   },
 ];
+
+
+const SCENARIO_ICON_MAP = { CheckCircle, AlertTriangle, Server, Shield, Globe, Phone, Calculator, Settings, FileText };
+const SCENARIO_ICON_OPTIONS = Object.keys(SCENARIO_ICON_MAP);
+const SCENARIO_COLOR_OPTIONS = [
+  { name: 'Green', color: GREEN, colorSoft: GREEN_SOFT },
+  { name: 'Amber', color: AMBER, colorSoft: '#FFFBEB' },
+  { name: 'Purple', color: ACCENT2, colorSoft: '#F5F3FF' },
+  { name: 'Blue', color: ACCENT, colorSoft: ACCENT_SOFT },
+  { name: 'Cyan', color: '#0891B2', colorSoft: '#ECFEFF' },
+  { name: 'Dark', color: INK, colorSoft: '#F1F5F9' },
+];
+
+const normaliseScenario = (scenario, fallback = {}) => {
+  const fallbackIconKey = fallback.iconKey || Object.keys(SCENARIO_ICON_MAP).find(k => SCENARIO_ICON_MAP[k] === fallback.icon) || 'CheckCircle';
+  return {
+    ...fallback,
+    ...scenario,
+    iconKey: scenario.iconKey || Object.keys(SCENARIO_ICON_MAP).find(k => SCENARIO_ICON_MAP[k] === scenario.icon) || fallbackIconKey,
+    color: scenario.color || fallback.color || ACCENT,
+    colorSoft: scenario.colorSoft || fallback.colorSoft || ACCENT_SOFT,
+    items: Array.isArray(scenario.items) ? scenario.items : [],
+  };
+};
+
+const prepareScenarioForStorage = (scenario) => {
+  const { icon, ...safeScenario } = scenario;
+  return safeScenario;
+};
+
+const getScenarioIcon = (scenario) => SCENARIO_ICON_MAP[scenario?.iconKey] || scenario?.icon || CheckCircle;
 
 // ═══════════════════════════════════════════════════════════════
 // HELPERS
@@ -186,6 +217,19 @@ export default function SIPPricingPlaybook() {
       return saved ? JSON.parse(saved) : DEFAULT_COST_DB;
     } catch (e) { return DEFAULT_COST_DB; }
   });
+  const [scenarios, setScenarios] = useState(() => {
+    try {
+      const saved = localStorage.getItem('sipScenarios_v3');
+      const base = saved ? JSON.parse(saved) : DEFAULT_SCENARIOS;
+      return base.map((sc, idx) => normaliseScenario(sc, DEFAULT_SCENARIOS[idx] || {}));
+    } catch (e) { return DEFAULT_SCENARIOS.map(sc => normaliseScenario(sc)); }
+  });
+  const blankScenario = {
+    id: '', name: '', desc: '', iconKey: 'CheckCircle', color: GREEN, colorSoft: GREEN_SOFT, items: []
+  };
+  const [scenarioForm, setScenarioForm] = useState(blankScenario);
+  const [editingScenarioId, setEditingScenarioId] = useState(null);
+  const [showScenarioForm, setShowScenarioForm] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [editValues, setEditValues] = useState({});
   const [expandedCats, setExpandedCats] = useState({});
@@ -219,6 +263,10 @@ export default function SIPPricingPlaybook() {
   useEffect(() => {
     try { localStorage.setItem('sipCostDB_v3', JSON.stringify(costDB)); } catch (e) { /* ignore */ }
   }, [costDB]);
+
+  useEffect(() => {
+    try { localStorage.setItem('sipScenarios_v3', JSON.stringify(scenarios.map(prepareScenarioForStorage))); } catch (e) { /* ignore */ }
+  }, [scenarios]);
 
   useEffect(() => {
     try { localStorage.setItem('sipUsers_v3', JSON.stringify(users)); } catch (e) { /* ignore */ }
@@ -260,11 +308,57 @@ export default function SIPPricingPlaybook() {
     showSaved();
   };
 
-  const removeUser = (username) => {
-    if (username === currentUser.username) return;
-    if (username === 'admin') return;
-    setUsers(prev => prev.filter(u => u.username !== username));
+  // ─── SCENARIO MANAGEMENT ───────────────────────────────
+  const allCostItemPaths = () => catOrder.flatMap(cat => costDB[cat] ? Object.keys(costDB[cat]).map(key => cat + '.' + key) : []);
+
+  const startAddScenario = () => {
+    const firstColor = SCENARIO_COLOR_OPTIONS[0];
+    setScenarioForm({ ...blankScenario, id: 'scenario-' + Date.now().toString(36), color: firstColor.color, colorSoft: firstColor.colorSoft, items: [] });
+    setEditingScenarioId(null);
+    setShowScenarioForm(true);
+  };
+
+  const startEditScenario = (scenario) => {
+    setScenarioForm(normaliseScenario(scenario));
+    setEditingScenarioId(scenario.id);
+    setShowScenarioForm(true);
+  };
+
+  const saveScenario = () => {
+    if (!scenarioForm.name.trim()) return;
+    const safeId = (scenarioForm.id || scenarioForm.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || ('scenario-' + Date.now().toString(36));
+    const scenarioToSave = normaliseScenario({ ...scenarioForm, id: safeId, name: scenarioForm.name.trim(), desc: scenarioForm.desc.trim(), items: scenarioForm.items || [] });
+    setScenarios(prev => editingScenarioId ? prev.map(sc => sc.id === editingScenarioId ? scenarioToSave : sc) : [...prev, scenarioToSave]);
+    setShowScenarioForm(false);
+    setEditingScenarioId(null);
+    setScenarioForm(blankScenario);
     showSaved();
+  };
+
+  const removeScenario = (scenarioId) => {
+    setScenarios(prev => prev.filter(sc => sc.id !== scenarioId));
+    if (selectedScenario === scenarioId) setSelectedScenario(null);
+    setConfirmAction(null);
+    showSaved();
+  };
+
+  const resetScenariosToFactory = () => {
+    setScenarios(DEFAULT_SCENARIOS.map(sc => normaliseScenario(sc)));
+    setSelectedScenario(null);
+    setConfirmAction(null);
+    showSaved();
+  };
+
+  const toggleScenarioItem = (dotPath) => {
+    setScenarioForm(prev => {
+      const items = prev.items || [];
+      return { ...prev, items: items.includes(dotPath) ? items.filter(i => i !== dotPath) : [...items, dotPath] };
+    });
+  };
+
+  const applyScenarioColor = (colorName) => {
+    const selected = SCENARIO_COLOR_OPTIONS.find(c => c.name === colorName) || SCENARIO_COLOR_OPTIONS[0];
+    setScenarioForm(prev => ({ ...prev, color: selected.color, colorSoft: selected.colorSoft }));
   };
 
   // ─── COST DB FUNCTIONS ──────────────────────────────────
@@ -367,7 +461,7 @@ export default function SIPPricingPlaybook() {
   };
 
   // ─── CALCULATOR FUNCTIONS ───────────────────────────────
-  const scenarioObj = SCENARIOS.find(s => s.id === selectedScenario);
+  const scenarioObj = scenarios.find(s => s.id === selectedScenario);
   const isCustomScenario = selectedScenario === 'custom';
 
   const getActiveItems = () => {
@@ -626,6 +720,7 @@ export default function SIPPricingPlaybook() {
   const tabs = [
     { id: 'sales', label: 'Sales Calculator', icon: Calculator, roles: ['admin', 'editor', 'sales'] },
     { id: 'engineering', label: 'Cost Database', icon: Settings, roles: ['admin', 'editor', 'sales'] },
+    { id: 'scenarios', label: 'Scenarios', icon: Shield, roles: ['admin'] },
     { id: 'quotes', label: 'Saved Quotes', icon: FileText, roles: ['admin', 'editor', 'sales'] },
     { id: 'users', label: 'User Management', icon: Users, roles: ['admin'] },
   ].filter(t => t.roles.includes(currentUser.role));
@@ -719,7 +814,7 @@ export default function SIPPricingPlaybook() {
 
             {/* Scenario cards */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10, marginBottom: 20 }}>
-              {SCENARIOS.map(sc => (
+              {scenarios.map(sc => (
                 <button key={sc.id} onClick={() => { setSelectedScenario(sc.id); setQtyInputs({}); setCustomItems({}); }}
                   style={{
                     background: selectedScenario === sc.id ? sc.colorSoft : SURFACE,
@@ -730,7 +825,7 @@ export default function SIPPricingPlaybook() {
                   }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                     <div style={{ width: 26, height: 26, borderRadius: 6, background: selectedScenario === sc.id ? sc.color : BORDER, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s' }}>
-                      <SI c={sc.icon} style={{ width: 13, height: 13, color: selectedScenario === sc.id ? SURFACE : INK3 }} />
+                      <SI c={getScenarioIcon(sc)} style={{ width: 13, height: 13, color: selectedScenario === sc.id ? SURFACE : INK3 }} />
                     </div>
                     <span style={{ fontWeight: 700, fontSize: 13, color: INK, letterSpacing: '-0.01em' }}>{sc.name}</span>
                   </div>
@@ -1064,6 +1159,120 @@ export default function SIPPricingPlaybook() {
                   {Object.values(costDB).reduce((s, c) => s + Object.keys(c).length, 0)} items across {Object.keys(costDB).length} categories
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ═══════════════════════════════════════════════════
+            TAB 3: SCENARIO MANAGEMENT
+            ═══════════════════════════════════════════════════ */}
+        {activeTab === 'scenarios' && (
+          <div className="fade-in">
+            <div style={{ borderBottom: '2px solid ' + INK, paddingBottom: 10, marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 }}>
+              <div>
+                <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: ACCENT, letterSpacing: '0.1em', textTransform: 'uppercase', fontWeight: 600, margin: 0 }}>03 / Scenario Management</p>
+                <h2 style={{ fontWeight: 800, fontSize: 30, color: INK, letterSpacing: '-0.025em', lineHeight: 1.05, margin: '6px 0 0' }}>Editable deployment scenarios</h2>
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <button onClick={startAddScenario} style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 12, background: ACCENT, color: SURFACE, border: 'none', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <Plus style={{ width: 13, height: 13 }} /> Add Scenario
+                </button>
+                <button onClick={() => setConfirmAction({ title: 'Reset Scenarios', message: 'This will reset all scenario cards back to the built-in defaults. Cost database items will not be changed.', confirmLabel: 'Reset Scenarios', onConfirm: resetScenariosToFactory })}
+                  style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 12, background: SURFACE, color: RED, border: '1.5px solid #FECACA', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <RefreshCw style={{ width: 13, height: 13 }} /> Reset Scenarios
+                </button>
+              </div>
+            </div>
+
+            {showScenarioForm && (
+              <div style={{ background: SURFACE, border: '1px solid ' + BORDER, borderRadius: 8, padding: '18px 20px', marginBottom: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                  <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: ACCENT, margin: 0 }}>{editingScenarioId ? 'Edit Scenario' : 'New Scenario'}</p>
+                  <button onClick={() => { setShowScenarioForm(false); setEditingScenarioId(null); setScenarioForm(blankScenario); }} style={{ background: SURFACE, border: '1px solid ' + BORDER, borderRadius: 6, padding: 5, cursor: 'pointer' }}><X style={{ width: 14, height: 14, color: INK3 }} /></button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                  <div>
+                    <label style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: INK3, display: 'block', marginBottom: 5 }}>Scenario Name</label>
+                    <input value={scenarioForm.name} onChange={e => setScenarioForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. SIP Trunk + Cloud PBX" style={{ width: '100%', padding: '8px 10px', fontFamily: "'Inter', sans-serif", fontSize: 13, border: '1.5px solid ' + BORDER, borderRadius: 8, boxSizing: 'border-box' }} />
+                  </div>
+                  <div>
+                    <label style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: INK3, display: 'block', marginBottom: 5 }}>Scenario ID</label>
+                    <input value={scenarioForm.id} onChange={e => setScenarioForm(p => ({ ...p, id: e.target.value }))} placeholder="auto-generated-if-blank" style={{ width: '100%', padding: '8px 10px', fontFamily: "'JetBrains Mono', monospace", fontSize: 12, border: '1.5px solid ' + BORDER, borderRadius: 8, boxSizing: 'border-box' }} />
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: INK3, display: 'block', marginBottom: 5 }}>Description</label>
+                  <textarea value={scenarioForm.desc} onChange={e => setScenarioForm(p => ({ ...p, desc: e.target.value }))} rows={3} placeholder="Describe when this scenario should be used" style={{ width: '100%', padding: '8px 10px', fontFamily: "'Inter', sans-serif", fontSize: 13, border: '1.5px solid ' + BORDER, borderRadius: 8, resize: 'vertical', boxSizing: 'border-box' }} />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+                  <div>
+                    <label style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: INK3, display: 'block', marginBottom: 5 }}>Icon</label>
+                    <select value={scenarioForm.iconKey} onChange={e => setScenarioForm(p => ({ ...p, iconKey: e.target.value }))} style={{ width: '100%', padding: '8px 10px', fontFamily: "'Inter', sans-serif", fontSize: 13, border: '1.5px solid ' + BORDER, borderRadius: 8 }}>
+                      {SCENARIO_ICON_OPTIONS.map(iconName => <option key={iconName} value={iconName}>{iconName}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: INK3, display: 'block', marginBottom: 5 }}>Colour</label>
+                    <select value={(SCENARIO_COLOR_OPTIONS.find(c => c.color === scenarioForm.color) || SCENARIO_COLOR_OPTIONS[0]).name} onChange={e => applyScenarioColor(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontFamily: "'Inter', sans-serif", fontSize: 13, border: '1.5px solid ' + BORDER, borderRadius: 8 }}>
+                      {SCENARIO_COLOR_OPTIONS.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{ borderTop: '1px solid ' + BORDER, paddingTop: 14 }}>
+                  <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: INK3, margin: '0 0 10px' }}>Included Cost Items ({(scenarioForm.items || []).length})</p>
+                  {catOrder.filter(cat => costDB[cat]).map(cat => (
+                    <div key={cat} style={{ marginBottom: 10 }}>
+                      <p style={{ fontSize: 12, fontWeight: 700, color: INK, margin: '0 0 5px' }}>{catLabels[cat] || cat}</p>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {Object.keys(costDB[cat]).map(key => {
+                          const dotPath = cat + '.' + key;
+                          const checked = (scenarioForm.items || []).includes(dotPath);
+                          return (
+                            <button key={dotPath} onClick={() => toggleScenarioItem(dotPath)} style={{ fontSize: 11, padding: '5px 10px', borderRadius: 6, cursor: 'pointer', fontWeight: 500, border: checked ? '1.5px solid ' + ACCENT : '1px solid ' + BORDER, background: checked ? ACCENT_SOFT : SURFACE, color: checked ? ACCENT : INK3 }}>
+                              {checked ? '✓ ' : ''}{costDB[cat][key].label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, borderTop: '1px solid ' + BORDER, paddingTop: 14, marginTop: 6 }}>
+                  <button onClick={() => { setShowScenarioForm(false); setEditingScenarioId(null); setScenarioForm(blankScenario); }} style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 12, background: SURFACE, color: INK3, border: '1.5px solid ' + BORDER, borderRadius: 8, padding: '8px 14px', cursor: 'pointer' }}>Cancel</button>
+                  <button onClick={saveScenario} style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 12, background: ACCENT, color: SURFACE, border: 'none', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <Save style={{ width: 13, height: 13 }} /> Save Scenario
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 10 }}>
+              {scenarios.map(sc => {
+                const Icon = getScenarioIcon(sc);
+                return (
+                  <div key={sc.id} style={{ background: SURFACE, border: '1px solid ' + BORDER, borderRadius: 8, padding: '14px 16px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                        <div style={{ width: 28, height: 28, borderRadius: 6, background: sc.color || ACCENT, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><SI c={Icon} style={{ width: 14, height: 14, color: SURFACE }} /></div>
+                        <div>
+                          <p style={{ fontSize: 13, fontWeight: 700, color: INK, margin: '0 0 3px' }}>{sc.name}</p>
+                          <p style={{ fontSize: 12, color: INK3, lineHeight: 1.5, margin: 0 }}>{sc.desc}</p>
+                          <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: INK3, letterSpacing: '0.06em', textTransform: 'uppercase', margin: '8px 0 0' }}>{sc.items.length} line items</p>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 5 }}>
+                        <button onClick={() => startEditScenario(sc)} style={{ background: SURFACE, border: '1.5px solid ' + BORDER, borderRadius: 6, padding: 5, cursor: 'pointer', color: ACCENT }}><Edit style={{ width: 13, height: 13 }} /></button>
+                        <button onClick={() => setConfirmAction({ title: 'Delete Scenario', message: 'Delete scenario "' + sc.name + '"? Existing saved quotes will not be removed.', confirmLabel: 'Delete Scenario', onConfirm: () => removeScenario(sc.id) })} style={{ background: SURFACE, border: '1.5px solid #FECACA', borderRadius: 6, padding: 5, cursor: 'pointer', color: RED }}><Trash2 style={{ width: 13, height: 13 }} /></button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
