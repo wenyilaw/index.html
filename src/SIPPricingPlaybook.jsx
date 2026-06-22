@@ -36,6 +36,12 @@ const DEFAULT_COST_DB = {
     channelBundle20: { internal: 25, external: 0, label: 'Bundle Rate (20+ channels)', unit: 'per channel/month' },
     channelBundle50: { internal: 20, external: 0, label: 'Bundle Rate (50+ channels)', unit: 'per channel/month' },
   },
+  channelDidBundles: {
+    sipDidBundle: { internal: 35, external: 0, label: 'SIP Channel + Local DID Bundle', unit: 'per bundle/month' },
+    sipDidBundle20: { internal: 30, external: 0, label: 'SIP Channel + DID Bundle (20+)', unit: 'per bundle/month' },
+    sipDidBundle50: { internal: 25, external: 0, label: 'SIP Channel + DID Bundle (50+)', unit: 'per bundle/month' },
+    sipDidBundleActivation: { internal: 25, external: 0, label: 'SIP Channel + DID Bundle Activation', unit: 'per bundle/one-time' },
+  },
   numbers: {
     didLocal: { internal: 5, external: 0, label: 'Local DID Number', unit: 'per number/month' },
     didTollFree: { internal: 15, external: 0, label: 'Toll-Free (1-800) Number', unit: 'per number/month' },
@@ -162,6 +168,7 @@ const LINE_ITEM_SECTION_OPTIONS = [
   'Monthly Rental Charges (Recurring)',
   'SIP DIDs',
   'SIP Channels',
+  'SIP Channels + DIDs Bundle',
   'Add-ons',
   'Call Charges',
 ];
@@ -169,9 +176,10 @@ const LINE_ITEM_SECTION_OPTIONS = [
 const defaultLineItemSection = (dotPath = '') => {
   const category = dotPath.split('.')[0];
   if (category === 'integration') return 'Installation Charges (OTC)';
-  if (category === 'siptrunk') return 'Monthly Rental Charges (Recurring)';
+  if (category === 'sipTrunk') return 'Monthly Rental Charges (Recurring)';
   if (category === 'numbers') return 'SIP DIDs';
   if (category === 'channels') return 'SIP Channels';
+  if (category === 'channelDidBundles') return 'SIP Channels + DIDs Bundle';
   if (category === 'cloudPBX') return 'Managed Services';
   if (category === 'professionalServices') return 'Professional Services';
   if (category === 'callRates') return 'Call Charges';
@@ -224,6 +232,7 @@ const isRecurring = (unit) => unit.includes('month') || unit.includes('per minut
 const catLabels = {
   sipTrunk: 'SIP Trunk',
   channels: 'Channels',
+  channelDidBundles: 'SIP Channel + DID Bundles',
   numbers: 'Numbers / DID',
   integration: 'Integration & Testing',
   cloudPBX: 'Cloud PBX',
@@ -231,9 +240,9 @@ const catLabels = {
   callRates: 'Call Rates',
 };
 
-const catOrder = ['sipTrunk', 'channels', 'numbers', 'integration', 'cloudPBX', 'professionalServices', 'callRates'];
+const catOrder = ['sipTrunk', 'channels', 'channelDidBundles', 'numbers', 'integration', 'cloudPBX', 'professionalServices', 'callRates'];
 
-const unitOptions = ['one-time', 'per month', 'per trunk/month', 'per link/month', 'per channel/month', 'per number/month', 'per number/one-time', 'per user/month', 'per unit/month', 'per day', 'per session', 'per site/one-time', 'per minute', 'per message', 'included/month'];
+const unitOptions = ['one-time', 'per month', 'per trunk/month', 'per link/month', 'per channel/month', 'per bundle/month', 'per bundle/one-time', 'per number/month', 'per number/one-time', 'per user/month', 'per unit/month', 'per day', 'per session', 'per site/one-time', 'per minute', 'per message', 'included/month'];
 
 // ═══════════════════════════════════════════════════════════════
 // MAIN COMPONENT
@@ -254,7 +263,10 @@ export default function SIPPricingPlaybook() {
   const [costDB, setCostDB] = useState(() => {
     try {
       const saved = localStorage.getItem('sipCostDB_v3');
-      return saved ? JSON.parse(saved) : DEFAULT_COST_DB;
+      if (!saved) return DEFAULT_COST_DB;
+      const parsed = JSON.parse(saved);
+      // Merge saved database with new built-in categories so new sections appear after upgrades.
+      return { ...DEFAULT_COST_DB, ...parsed };
     } catch (e) { return DEFAULT_COST_DB; }
   });
   const [scenarios, setScenarios] = useState(() => {
@@ -715,8 +727,6 @@ export default function SIPPricingPlaybook() {
   const exportQuoteToExcel = (qi) => {
     const esc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const totalSell = qi.lines.reduce((s, l) => s + l.sell, 0);
-    const totalCost = qi.lines.reduce((s, l) => s + l.internal + l.external, 0);
-    const totalMargin = totalSell - totalCost;
     const sections = Array.from(new Set(qi.lines.map(l => l.section || 'Line Items')));
     const lineRows = sections.map(section => {
       const rows = qi.lines.filter(l => (l.section || 'Line Items') === section).map(l => (
@@ -724,10 +734,8 @@ export default function SIPPricingPlaybook() {
         '<td>' + esc(section) + '</td>' +
         '<td>' + esc(l.label) + '</td>' +
         '<td>' + esc(l.unit) + '</td>' +
-        '<td style="mso-number-format:\"0\";">' + l.qty + '</td>' +
-        '<td style="mso-number-format:\"#,##0.00\";">' + (l.internal + l.external).toFixed(2) + '</td>' +
-        '<td style="mso-number-format:\"#,##0.00\";">' + l.sell.toFixed(2) + '</td>' +
-        '<td style="mso-number-format:\"0.0%\";">' + (l.sell > 0 ? ((l.sell - l.internal - l.external) / l.sell).toFixed(4) : '0') + '</td>' +
+        '<td style="mso-number-format:\\"0\\";">' + l.qty + '</td>' +
+        '<td style="mso-number-format:\\"#,##0.00\\";">' + l.sell.toFixed(2) + '</td>' +
         '</tr>'
       )).join('');
       return rows;
@@ -735,19 +743,17 @@ export default function SIPPricingPlaybook() {
 
     const html = '<html><head><meta charset="utf-8" /></head><body>' +
       '<table border="1">' +
-      '<tr><th colspan="7" style="font-size:16px;">SIP Services Quotation</th></tr>' +
-      '<tr><td><b>Reference</b></td><td colspan="6">' + esc(qi.ref) + '</td></tr>' +
-      '<tr><td><b>Customer</b></td><td colspan="6">' + esc(qi.customer) + '</td></tr>' +
-      '<tr><td><b>Scenario</b></td><td colspan="6">' + esc(qi.scenario) + '</td></tr>' +
-      '<tr><td><b>Date</b></td><td colspan="6">' + esc(qi.date) + '</td></tr>' +
-      '<tr><td><b>Validity</b></td><td colspan="6">' + esc(qi.validity) + ' days</td></tr>' +
+      '<tr><th colspan="5" style="font-size:16px;">SIP Services Quotation</th></tr>' +
+      '<tr><td><b>Reference</b></td><td colspan="4">' + esc(qi.ref) + '</td></tr>' +
+      '<tr><td><b>Customer</b></td><td colspan="4">' + esc(qi.customer) + '</td></tr>' +
+      '<tr><td><b>Scenario</b></td><td colspan="4">' + esc(qi.scenario) + '</td></tr>' +
+      '<tr><td><b>Date</b></td><td colspan="4">' + esc(qi.date) + '</td></tr>' +
+      '<tr><td><b>Validity</b></td><td colspan="4">' + esc(qi.validity) + ' days</td></tr>' +
       '<tr></tr>' +
-      '<tr><th>Section</th><th>Item</th><th>Unit</th><th>Qty</th><th>Cost (RM)</th><th>Sell (RM)</th><th>Margin %</th></tr>' +
+      '<tr><th>Section</th><th>Item</th><th>Unit</th><th>Qty</th><th>Sell Price (RM)</th></tr>' +
       lineRows +
       '<tr></tr>' +
-      '<tr><td colspan="4"><b>Total Cost</b></td><td style="mso-number-format:\"#,##0.00\";">' + totalCost.toFixed(2) + '</td><td></td><td></td></tr>' +
-      '<tr><td colspan="5"><b>Total Sell</b></td><td style="mso-number-format:\"#,##0.00\";">' + totalSell.toFixed(2) + '</td><td></td></tr>' +
-      '<tr><td colspan="5"><b>Absolute Margin</b></td><td style="mso-number-format:\"#,##0.00\";">' + totalMargin.toFixed(2) + '</td><td style="mso-number-format:\"0.0%\";">' + (totalSell > 0 ? (totalMargin / totalSell).toFixed(4) : '0') + '</td></tr>' +
+      '<tr><td colspan="4"><b>Total Sell</b></td><td style="mso-number-format:\\"#,##0.00\\";">' + totalSell.toFixed(2) + '</td></tr>' +
       '</table></body></html>';
     const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
     const url = URL.createObjectURL(blob);
@@ -763,13 +769,9 @@ export default function SIPPricingPlaybook() {
   // ─── PDF EXPORT ─────────────────────────────────────────
   const exportQuoteToPDF = (qi) => {
     const totalSell = qi.lines.reduce((s, l) => s + l.sell, 0);
-    const totalCost = qi.lines.reduce((s, l) => s + l.internal + l.external, 0);
-    const totalMargin = totalSell - totalCost;
     const oneTimeLines = qi.lines.filter(l => l.unit === 'one-time' || l.unit.includes('one-time'));
     const recurLines = qi.lines.filter(l => l.unit !== 'one-time' && !l.unit.includes('one-time'));
-    const otCost = oneTimeLines.reduce((s, l) => s + l.internal + l.external, 0);
     const otSell = oneTimeLines.reduce((s, l) => s + l.sell, 0);
-    const rcCost = recurLines.reduce((s, l) => s + l.internal + l.external, 0);
     const rcSell = recurLines.reduce((s, l) => s + l.sell, 0);
 
     const renderRows = (lines) => lines.map(l => (
@@ -777,12 +779,11 @@ export default function SIPPricingPlaybook() {
       '<td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;font-size:13px;">' + l.label + '</td>' +
       '<td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;text-align:center;font-family:monospace;font-size:12px;">' + l.qty + '</td>' +
       '<td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;font-size:11px;color:#64748B;">' + l.unit + '</td>' +
-      '<td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;text-align:right;font-family:monospace;font-size:12px;">' + formatMYR(l.internal + l.external) + '</td>' +
       '<td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;text-align:right;font-family:monospace;font-size:12px;font-weight:600;color:#2563EB;">' + formatMYR(l.sell) + '</td>' +
       '</tr>'
     )).join('');
 
-    const sectionBlock = (title, lines, cost, sell) => lines.length > 0 ? (
+    const sectionBlock = (title, lines, sell) => lines.length > 0 ? (
       '<div style="margin-bottom:24px;">' +
       '<h3 style="font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:#64748B;margin:0 0 8px;font-weight:600;">' + title + '</h3>' +
       '<table style="width:100%;border-collapse:collapse;">' +
@@ -790,12 +791,10 @@ export default function SIPPricingPlaybook() {
       '<th style="padding:8px 12px;text-align:left;border-bottom:2px solid #0F172A;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#64748B;background:#F8F9FA;">Item</th>' +
       '<th style="padding:8px 12px;text-align:center;border-bottom:2px solid #0F172A;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#64748B;background:#F8F9FA;">Qty</th>' +
       '<th style="padding:8px 12px;text-align:left;border-bottom:2px solid #0F172A;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#64748B;background:#F8F9FA;">Unit</th>' +
-      '<th style="padding:8px 12px;text-align:right;border-bottom:2px solid #0F172A;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#64748B;background:#F8F9FA;">Cost (RM)</th>' +
-      '<th style="padding:8px 12px;text-align:right;border-bottom:2px solid #0F172A;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#64748B;background:#F8F9FA;">Sell (RM)</th>' +
+      '<th style="padding:8px 12px;text-align:right;border-bottom:2px solid #0F172A;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#64748B;background:#F8F9FA;">Sell Price (RM)</th>' +
       '</tr></thead><tbody>' + renderRows(lines) + '</tbody>' +
       '<tfoot><tr style="background:#F8F9FA;font-weight:700;">' +
       '<td style="padding:10px 12px;border-top:2px solid #0F172A;font-size:13px;" colspan="3">Subtotal</td>' +
-      '<td style="padding:10px 12px;border-top:2px solid #0F172A;text-align:right;font-family:monospace;font-size:12px;">' + formatMYR(cost) + '</td>' +
       '<td style="padding:10px 12px;border-top:2px solid #0F172A;text-align:right;font-family:monospace;font-size:13px;color:#2563EB;">' + formatMYR(sell) + '</td>' +
       '</tr></tfoot></table></div>'
     ) : '';
@@ -807,7 +806,7 @@ export default function SIPPricingPlaybook() {
       '<div><div style="width:40px;height:40px;background:#2563EB;border-radius:8px;display:flex;align-items:center;justify-content:center;margin-bottom:12px;">' +
       '<span style="color:white;font-size:18px;font-weight:800;">S</span></div>' +
       '<h1 style="font-size:24px;font-weight:800;letter-spacing:-0.02em;margin:0;">SIP Services Quotation</h1>' +
-      '<p style="font-size:12px;color:#64748B;margin:4px 0 0;">Confidential \u2014 Internal Use Only</p></div>' +
+      '<p style="font-size:12px;color:#64748B;margin:4px 0 0;">Confidential</p></div>' +
       '<div style="text-align:right;">' +
       '<p style="font-family:monospace;font-size:12px;margin:0;"><strong>Ref:</strong> ' + qi.ref + '</p>' +
       '<p style="font-family:monospace;font-size:12px;margin:4px 0 0;"><strong>Date:</strong> ' + qi.date + '</p>' +
@@ -819,8 +818,8 @@ export default function SIPPricingPlaybook() {
       '<div style="background:#F8F9FA;border-radius:8px;padding:14px 18px;">' +
       '<p style="font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#64748B;margin:0 0 4px;font-weight:600;">Scenario</p>' +
       '<p style="font-size:15px;font-weight:600;margin:0;">' + qi.scenario + '</p></div></div>' +
-      sectionBlock('One-Time Costs', oneTimeLines, otCost, otSell) +
-      sectionBlock('Monthly Recurring Costs', recurLines, rcCost, rcSell) +
+      sectionBlock('One-Time Charges', oneTimeLines, otSell) +
+      sectionBlock('Monthly Recurring Charges', recurLines, rcSell) +
       '<div style="background:#0F172A;border-radius:8px;padding:20px 24px;color:white;margin-top:24px;">' +
       '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">' +
       '<div><p style="font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:rgba(255,255,255,0.6);margin:0 0 4px;font-weight:600;">One-Time Total</p>' +
@@ -829,16 +828,15 @@ export default function SIPPricingPlaybook() {
       '<p style="font-size:22px;font-weight:800;margin:0;">' + formatMYR(rcSell) + '</p></div>' +
       '<div><p style="font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:rgba(255,255,255,0.6);margin:0 0 4px;font-weight:600;">First Month Total</p>' +
       '<p style="font-size:22px;font-weight:800;margin:0;color:#60A5FA;">' + formatMYR(otSell + rcSell) + '</p></div></div>' +
-      '<div style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.15);display:flex;justify-content:space-between;">' +
-      '<span style="font-size:12px;color:rgba(255,255,255,0.6);">Absolute Margin: ' + formatMYR(totalMargin) + ' (' + (totalSell > 0 ? (totalMargin / totalSell * 100).toFixed(1) : '0') + '%)</span>' +
-      '<span style="font-size:12px;color:rgba(255,255,255,0.6);">Target Margin: ' + qi.marginPct + '%</span></div></div>' +
+      '<div style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.15);">' +
+      '<span style="font-size:12px;color:rgba(255,255,255,0.6);">Total Sell: ' + formatMYR(totalSell) + '</span></div></div>' +
       '<div style="margin-top:28px;padding-top:16px;border-top:1px solid #E2E8F0;">' +
       '<p style="font-size:11px;color:#64748B;line-height:1.7;margin:0;">' +
       'This quotation is valid for ' + qi.validity + ' days from the date of issue. All prices are in Malaysian Ringgit (MYR). ' +
-      'Prices are subject to change after the validity period. This document is confidential and intended for internal use only.</p></div>' +
+      'Prices are subject to change after the validity period.</p></div>' +
       '<div style="margin-top:20px;text-align:center;">' +
       '<p style="font-family:monospace;font-size:9px;color:#94A3B8;letter-spacing:0.1em;text-transform:uppercase;margin:0;">' +
-      'SIP Services Pricing Playbook \u00b7 Confidential \u00b7 Internal Use Only</p></div>' +
+      'SIP Services Pricing Playbook</p></div>' +
       '</body></html>';
 
     const printWindow = window.open('', '_blank');
@@ -1588,15 +1586,13 @@ export default function SIPPricingPlaybook() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {quoteItems.map((qi, idx) => {
                   const totalSell = qi.lines.reduce((s, l) => s + l.sell, 0);
-                  const totalCost = qi.lines.reduce((s, l) => s + l.internal + l.external, 0);
-                  const totalMargin = totalSell - totalCost;
                   return (
                     <div key={idx} style={{ background: SURFACE, border: '1px solid ' + BORDER, borderRadius: 8, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px', borderBottom: '2px solid ' + INK, background: BG, flexWrap: 'wrap', gap: 8 }}>
                         <div>
                           <span style={{ fontWeight: 700, fontSize: 14, color: INK }}>{qi.scenario}</span>
                           <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: INK3, marginLeft: 10, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                            {qi.marginPct}% margin &middot; {qi.date}
+                            {qi.date}
                           </span>
                           <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: ACCENT, marginLeft: 8, letterSpacing: '0.06em' }}>
                             {qi.ref}
@@ -1619,27 +1615,23 @@ export default function SIPPricingPlaybook() {
                         </div>
                       </div>
                       <div style={{ padding: '0 18px' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '110px 2fr 50px 80px 80px 70px', padding: '5px 0', borderBottom: '1px solid ' + BORDER, fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: INK3 }}>
-                          <span>Section</span><span>Item</span><span style={{ textAlign: 'center' }}>Qty</span><span style={{ textAlign: 'right' }}>Cost</span><span style={{ textAlign: 'right' }}>Sell</span><span style={{ textAlign: 'right' }}>Margin</span>
+                        <div style={{ display: 'grid', gridTemplateColumns: '110px 2fr 50px 100px', padding: '5px 0', borderBottom: '1px solid ' + BORDER, fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: INK3 }}>
+                          <span>Section</span><span>Item</span><span style={{ textAlign: 'center' }}>Qty</span><span style={{ textAlign: 'right' }}>Sell Price</span>
                         </div>
                         {qi.lines.map((l, li) => (
-                          <div key={li} style={{ display: 'grid', gridTemplateColumns: '110px 2fr 50px 80px 80px 70px', padding: '5px 0', borderBottom: '1px solid ' + BORDER }}>
+                          <div key={li} style={{ display: 'grid', gridTemplateColumns: '110px 2fr 50px 100px', padding: '5px 0', borderBottom: '1px solid ' + BORDER }}>
                             <span style={{ fontSize: 10, color: INK3, fontWeight: 600 }}>{l.section || 'Line Items'}</span>
                             <span style={{ fontSize: 11, color: INK, fontWeight: 500 }}>{l.label}</span>
                             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, textAlign: 'center', color: INK2 }}>{l.qty}</span>
-                            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, textAlign: 'right', color: INK2 }}>{formatMYR(l.internal + l.external)}</span>
                             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, textAlign: 'right', color: ACCENT, fontWeight: 600 }}>{formatMYR(l.sell)}</span>
-                            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, textAlign: 'right', color: INK3 }}>{l.sell > 0 ? ((l.sell - l.internal - l.external) / l.sell * 100).toFixed(1) + '%' : '\u2014'}</span>
                           </div>
                         ))}
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '110px 2fr 50px 80px 80px 70px', padding: '8px 18px', borderTop: '2px solid ' + INK, background: BG }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '110px 2fr 50px 100px', padding: '8px 18px', borderTop: '2px solid ' + INK, background: BG }}>
                         <span style={{ fontWeight: 700, fontSize: 12, color: INK }}>Total</span>
                         <span />
                         <span />
-                        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, textAlign: 'right', color: INK, fontWeight: 600 }}>{formatMYR(totalCost)}</span>
                         <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, textAlign: 'right', color: ACCENT, fontWeight: 700 }}>{formatMYR(totalSell)}</span>
-                        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, textAlign: 'right', color: GREEN, fontWeight: 600 }}>{totalSell > 0 ? (totalMargin / totalSell * 100).toFixed(1) + '%' : '\u2014'}</span>
                       </div>
                     </div>
                   );
