@@ -156,19 +156,20 @@ const SCENARIO_SECTION_OPTIONS = [
 const SCENARIO_SECTION_LABELS = SCENARIO_SECTION_OPTIONS.reduce((acc, section) => ({ ...acc, [section.id]: section.label }), {});
 
 const LINE_ITEM_SECTION_OPTIONS = [
-  'Core Components',
-  'Licenses & Capacity',
-  'Professional Services',
-  'Managed Services',
+  'SIP Channels',
+  'SIP DIDs',
+  'Monthly Rental Charges(Recurring)',
+  'Installation Charges(OTC)',
+  'Managed Services(Recurring)',
   'Add-ons',
   'Call Charges',
 ];
 
 const defaultLineItemSection = (dotPath = '') => {
   const category = dotPath.split('.')[0];
-  if (category === 'sipTrunk' || category === 'integration') return 'Core Components';
-  if (category === 'channels' || category === 'numbers' || category === 'cloudPBX') return 'Licenses & Capacity';
-  if (category === 'professionalServices') return 'Professional Services';
+  if (category === 'sipTrunk' || category === 'integration') return 'SIP Channels';
+  if (category === 'channels' || category === 'numbers' || category === 'cloudPBX') return 'SIP DIDs';
+  if (category === 'professionalServices') return 'Monthly Rental Charges(Recurring)';
   if (category === 'callRates') return 'Call Charges';
   return 'Add-ons';
 };
