@@ -148,7 +148,7 @@ const SCENARIO_COLOR_OPTIONS = [
 ];
 
 const SCENARIO_SECTION_OPTIONS = [
-  { id: 'certified', label: 'SIP Trunk only', desc: 'Certified customer-owned IP-PBX, SBC or MGW deployment scenarios.' },
+  { id: 'certified', label: 'SIP Trunk only', desc: 'Certified or non-certified customer-owned IP-PBX, SBC or MGW deployment scenarios.' },
   { id: 'managed', label: 'Managed IP-PBX / SBC / MGW', desc: 'YES-managed voice platform, managed SBC, managed MGW and recurring support scenarios.' },
   { id: 'addon', label: 'Add-On to Existing Scenario', desc: 'Optional add-ons that can be attached to a selected certified or managed scenario.' },
 ];
