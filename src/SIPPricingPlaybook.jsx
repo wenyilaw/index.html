@@ -303,7 +303,7 @@ export default function SIPPricingPlaybook() {
   const [showScenarioForm, setShowScenarioForm] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [editValues, setEditValues] = useState({});
-  const [expandedCats, setExpandedCats] = useState({});
+  const [expandedCats, setExpandedCats] = useState(() => Object.fromEntries(catOrder.map(cat => [cat, true])));
   const [showAddItem, setShowAddItem] = useState(null);
   const [newItem, setNewItem] = useState({ key: '', label: '', internal: 0, external: 0, unit: 'per month' });
   const [dbSearch, setDbSearch] = useState('');
@@ -348,13 +348,6 @@ export default function SIPPricingPlaybook() {
   useEffect(() => {
     try { localStorage.setItem('sipUsers_v3', JSON.stringify(users)); } catch (e) { /* ignore */ }
   }, [users]);
-useEffect(() => {
-  try {
-    localStorage.setItem('sipBundleRules_v1', JSON.stringify(bundleRules));
-  } catch (e) {
-    // ignore
-  }
-}, [bundleRules]);
   // ─── CALLBACKS ──────────────────────────────────────────
   const showSaved = useCallback(() => {
     setSavedNotice(true);
@@ -1362,6 +1355,16 @@ useEffect(() => {
                 ? 'Set internal cost (carrier/vendor) and external cost (third-party pass-through). Sales uses these for margin markup.'
                 : currentUser.role === 'sales' ? 'Sales can view Call Rates only. Internal cost database categories are hidden.' : 'View current unit costs. Contact Engineering or Admin to request changes.'}
             </p>
+
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+              <button onClick={() => setExpandedCats(Object.fromEntries(visibleCostCategories.map(cat => [cat, true])))} style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 11, background: SURFACE, color: ACCENT, border: '1.5px solid ' + ACCENT, borderRadius: 8, padding: '6px 12px', cursor: 'pointer' }}>
+                Expand All
+              </button>
+              <button onClick={() => setExpandedCats({})} style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 11, background: SURFACE, color: INK3, border: '1.5px solid ' + BORDER, borderRadius: 8, padding: '6px 12px', cursor: 'pointer' }}>
+                Collapse All
+              </button>
+              {currentUser.role === 'sales' && <span style={{ fontSize: 12, color: INK3, alignSelf: 'center' }}>Sales role can view Call Rates only.</span>}
+            </div>
 
             {/* Category sections */}
             {visibleCostCategories.filter(cat => costDB[cat]).map(cat => {
