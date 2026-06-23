@@ -277,6 +277,24 @@ export default function SIPPricingPlaybook() {
       return base.map((sc, idx) => normaliseScenario(sc, DEFAULT_SCENARIOS[idx] || {}));
     } catch (e) { return DEFAULT_SCENARIOS.map(sc => normaliseScenario(sc)); }
   });
+  const [bundleRules, setBundleRules] = useState(() => {
+  try {
+    const saved = localStorage.getItem('sipBundleRules_v1');
+    return saved ? JSON.parse(saved) : {
+      enabled: true,
+      channelItem: 'channels.perChannelMonthly',
+      didItem: 'numbers.didLocal',
+      didPerChannel: 2
+    };
+  } catch (e) {
+    return {
+      enabled: true,
+      channelItem: 'channels.perChannelMonthly',
+      didItem: 'numbers.didLocal',
+      didPerChannel: 2
+    };
+  }
+});
   const blankScenario = {
     id: '', name: '', desc: '', scenarioType: 'certified', iconKey: 'CheckCircle', color: GREEN, colorSoft: GREEN_SOFT, items: [], itemSettings: {}
   };
@@ -330,7 +348,13 @@ export default function SIPPricingPlaybook() {
   useEffect(() => {
     try { localStorage.setItem('sipUsers_v3', JSON.stringify(users)); } catch (e) { /* ignore */ }
   }, [users]);
-
+useEffect(() => {
+  try {
+    localStorage.setItem('sipBundleRules_v1', JSON.stringify(bundleRules));
+  } catch (e) {
+    // ignore
+  }
+}, [bundleRules]);
   // ─── CALLBACKS ──────────────────────────────────────────
   const showSaved = useCallback(() => {
     setSavedNotice(true);
