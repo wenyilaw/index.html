@@ -278,23 +278,27 @@ export default function SIPPricingPlaybook() {
     } catch (e) { return DEFAULT_SCENARIOS.map(sc => normaliseScenario(sc)); }
   });
   const [bundleRules, setBundleRules] = useState(() => {
-  try {
-    const saved = localStorage.getItem('sipBundleRules_v1');
-    return saved ? JSON.parse(saved) : {
-      enabled: true,
-      channelItem: 'channels.perChannelMonthly',
-      didItem: 'numbers.didLocal',
-      didPerChannel: 2
-    };
-  } catch (e) {
-    return {
-      enabled: true,
-      channelItem: 'channels.perChannelMonthly',
-      didItem: 'numbers.didLocal',
-      didPerChannel: 2
-    };
-  }
-});
+    try {
+      const saved = localStorage.getItem('sipBundleRules_v1');
+      const parsed = saved ? JSON.parse(saved) : {};
+      // Support both the old flat format and the new nested channelDidLink format.
+      const savedChannelDidLink = parsed.channelDidLink || (
+        parsed.channelItem || parsed.didItem || parsed.didPerChannel !== undefined || parsed.enabled !== undefined
+          ? parsed
+          : {}
+      );
+      return {
+        ...DEFAULT_BUNDLE_RULES,
+        ...parsed,
+        channelDidLink: {
+          ...DEFAULT_BUNDLE_RULES.channelDidLink,
+          ...savedChannelDidLink,
+        },
+      };
+    } catch (e) {
+      return DEFAULT_BUNDLE_RULES;
+    }
+  });
   const blankScenario = {
     id: '', name: '', desc: '', scenarioType: 'certified', iconKey: 'CheckCircle', color: GREEN, colorSoft: GREEN_SOFT, items: [], itemSettings: {}
   };
@@ -971,6 +975,10 @@ export default function SIPPricingPlaybook() {
   ].filter(t => t.roles.includes(currentUser.role));
 
   const visibleCostCategories = currentUser.role === 'sales' ? ['callRates'] : catOrder;
+  const activeBundleRule = {
+    ...DEFAULT_BUNDLE_RULES.channelDidLink,
+    ...((bundleRules && bundleRules.channelDidLink) || {}),
+  };
 
   return (
     <div style={{ minHeight: '100vh', background: BG, fontFamily: "Inter, system-ui, sans-serif", color: INK2 }}>
@@ -1205,7 +1213,7 @@ export default function SIPPricingPlaybook() {
                             <div>
                               <span style={{ fontSize: 12, fontWeight: 500, color: INK }}>{item.label}</span>
                               <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, color: INK3, marginLeft: 6, letterSpacing: '0.04em' }}>{item.unit}</span>
-                              {bundleLinkedDid && <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, color: ACCENT, marginLeft: 6, letterSpacing: '0.04em' }}>AUTO: {bundleRules.channelDidLink.didPerChannel} DID per channel</span>}
+                              {bundleLinkedDid && <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, color: ACCENT, marginLeft: 6, letterSpacing: '0.04em' }}>AUTO: {activeBundleRule.didPerChannel} DID per channel</span>}
                             </div>
                             <div style={{ textAlign: 'center' }}>
                               <input type="number" min={qtySetting.minQty || 0} max={qtySetting.maxQty || 9999} value={getQty(dotPath) || ''} onChange={e => setQty(dotPath, e.target.value)} placeholder="0" disabled={!qtyEditable}
@@ -1318,26 +1326,26 @@ export default function SIPPricingPlaybook() {
                     <p style={{ fontSize: 12, color: INK3, margin: '4px 0 0' }}>Auto-tie SIP Channels to Local DID quantity. Example: 5 channels = 10 DID when ratio is 2.</p>
                   </div>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: INK }}>
-                    <input type="checkbox" checked={bundleRules.channelDidLink.enabled} onChange={e => setBundleRules(prev => ({ ...prev, channelDidLink: { ...prev.channelDidLink, enabled: e.target.checked } }))} />
+                    <input type="checkbox" checked={activeBundleRule.enabled} onChange={e => setBundleRules(prev => ({ ...prev, channelDidLink: { ...(prev.channelDidLink || DEFAULT_BUNDLE_RULES.channelDidLink), enabled: e.target.checked } }))} />
                     Enable rule
                   </label>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 120px', gap: 10, alignItems: 'end' }}>
                   <div>
                     <label style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: INK3, display: 'block', marginBottom: 4 }}>Channel Item</label>
-                    <select value={bundleRules.channelDidLink.channelItem} onChange={e => setBundleRules(prev => ({ ...prev, channelDidLink: { ...prev.channelDidLink, channelItem: e.target.value } }))} style={{ width: '100%', padding: '7px 10px', fontFamily: "'Inter', sans-serif", fontSize: 12, border: '1.5px solid ' + BORDER, background: SURFACE, borderRadius: 8, color: INK }}>
+                    <select value={activeBundleRule.channelItem} onChange={e => setBundleRules(prev => ({ ...prev, channelDidLink: { ...(prev.channelDidLink || DEFAULT_BUNDLE_RULES.channelDidLink), channelItem: e.target.value } }))} style={{ width: '100%', padding: '7px 10px', fontFamily: "'Inter', sans-serif", fontSize: 12, border: '1.5px solid ' + BORDER, background: SURFACE, borderRadius: 8, color: INK }}>
                       {Object.keys(costDB.channels || {}).map(key => <option key={key} value={'channels.' + key}>{costDB.channels[key].label}</option>)}
                     </select>
                   </div>
                   <div>
                     <label style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: INK3, display: 'block', marginBottom: 4 }}>DID Item</label>
-                    <select value={bundleRules.channelDidLink.didItem} onChange={e => setBundleRules(prev => ({ ...prev, channelDidLink: { ...prev.channelDidLink, didItem: e.target.value } }))} style={{ width: '100%', padding: '7px 10px', fontFamily: "'Inter', sans-serif", fontSize: 12, border: '1.5px solid ' + BORDER, background: SURFACE, borderRadius: 8, color: INK }}>
+                    <select value={activeBundleRule.didItem} onChange={e => setBundleRules(prev => ({ ...prev, channelDidLink: { ...(prev.channelDidLink || DEFAULT_BUNDLE_RULES.channelDidLink), didItem: e.target.value } }))} style={{ width: '100%', padding: '7px 10px', fontFamily: "'Inter', sans-serif", fontSize: 12, border: '1.5px solid ' + BORDER, background: SURFACE, borderRadius: 8, color: INK }}>
                       {Object.keys(costDB.numbers || {}).map(key => <option key={key} value={'numbers.' + key}>{costDB.numbers[key].label}</option>)}
                     </select>
                   </div>
                   <div>
                     <label style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: INK3, display: 'block', marginBottom: 4 }}>DID per Channel</label>
-                    <input type="number" min="0" value={bundleRules.channelDidLink.didPerChannel} onChange={e => setBundleRules(prev => ({ ...prev, channelDidLink: { ...prev.channelDidLink, didPerChannel: Math.max(0, Number(e.target.value) || 0) } }))} style={{ width: '100%', padding: '7px 10px', fontFamily: "'JetBrains Mono', monospace", fontSize: 12, border: '1.5px solid ' + BORDER, background: SURFACE, borderRadius: 8, color: INK, boxSizing: 'border-box' }} />
+                    <input type="number" min="0" value={activeBundleRule.didPerChannel} onChange={e => setBundleRules(prev => ({ ...prev, channelDidLink: { ...(prev.channelDidLink || DEFAULT_BUNDLE_RULES.channelDidLink), didPerChannel: Math.max(0, Number(e.target.value) || 0) } }))} style={{ width: '100%', padding: '7px 10px', fontFamily: "'JetBrains Mono', monospace", fontSize: 12, border: '1.5px solid ' + BORDER, background: SURFACE, borderRadius: 8, color: INK, boxSizing: 'border-box' }} />
                   </div>
                 </div>
               </div>
