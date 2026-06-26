@@ -1304,37 +1304,48 @@ export default function SIPPricingPlaybook() {
                   </div>
                 </div>
 
-                {/* Breakdown + Stat tiles */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginTop: 14 }}>
-                  <div style={{ background: ACCENT, borderRadius: 8, padding: '18px 20px' }}>
-                    <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)', margin: '0 0 4px' }}>One-Time Estimated Cost</p>
-                    <p style={{ fontWeight: 800, fontSize: 26, color: SURFACE, letterSpacing: '-0.02em', lineHeight: 1, margin: 0 }}>{formatMYR(breakdown.oneTimeSell)}</p>
-                  </div>
-                  <div style={{ background: GREEN, borderRadius: 8, padding: '18px 20px' }}>
-                    <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)', margin: '0 0 4px' }}>Monthly Estimated Cost</p>
-                    <p style={{ fontWeight: 800, fontSize: 26, color: SURFACE, letterSpacing: '-0.02em', lineHeight: 1, margin: 0 }}>{formatMYR(breakdown.recurSell)}</p>
-                  </div>
-                  <div style={{ background: ACCENT2, borderRadius: 8, padding: '18px 20px' }}>
-                    <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)', margin: '0 0 4px' }}>First Month Estimated Cost</p>
-                    <p style={{ fontWeight: 800, fontSize: 26, color: SURFACE, letterSpacing: '-0.02em', lineHeight: 1, margin: 0 }}>{formatMYR(breakdown.oneTimeSell + breakdown.recurSell)}</p>
-                  </div>
-                  <div style={{ background: SURFACE, border: '1px solid ' + BORDER, borderRadius: 8, padding: '18px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-                    <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: INK3, margin: '0 0 4px' }}>Mark Up Cost</p>
-                    <p style={{ fontWeight: 800, fontSize: 26, color: INK, letterSpacing: '-0.02em', lineHeight: 1, margin: 0 }}>{formatMYR(grand.margin)}</p>
-                    <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: INK3, margin: '3px 0 0' }}>{grand.marginPct.toFixed(1)}% of estimated cost</p>
-                  </div>
+                {/* Internal and Mark Up Estimated Cost panels */}
+                <div style={{ marginTop: 16 }}>
+                  {[
+                    {
+                      title: 'Internal Estimated Cost',
+                      oneTime: breakdown.oneTimeCost,
+                      monthly: breakdown.recurCost,
+                      firstMonth: breakdown.oneTimeCost + breakdown.recurCost,
+                    },
+                    {
+                      title: 'Mark Up Estimated Cost',
+                      oneTime: breakdown.oneTimeSell,
+                      monthly: breakdown.recurSell,
+                      firstMonth: breakdown.oneTimeSell + breakdown.recurSell,
+                    },
+                  ].map(section => (
+                    <div key={section.title} style={{ background: SURFACE, border: '1px solid ' + BORDER, borderRadius: 8, overflow: 'hidden', marginTop: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                      <div style={{ background: ACCENT, color: SURFACE, padding: '9px 14px', fontWeight: 800, fontSize: 16, letterSpacing: '-0.01em' }}>
+                        {section.title}
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(180px, 1fr))', gap: 24, padding: '16px 24px' }}>
+                        <div style={{ background: ACCENT, borderRadius: 10, padding: '18px 20px', color: SURFACE, textAlign: 'center', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.12), 0 4px 12px rgba(37,99,235,0.20)' }}>
+                          <p style={{ fontWeight: 800, fontSize: 16, color: SURFACE, margin: '0 0 10px' }}>One Time Cost</p>
+                          <p style={{ fontWeight: 800, fontSize: 30, color: SURFACE, letterSpacing: '-0.03em', lineHeight: 1, margin: 0 }}>{formatMYR(section.oneTime)}</p>
+                        </div>
+                        <div style={{ background: ACCENT, borderRadius: 10, padding: '18px 20px', color: SURFACE, textAlign: 'center', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.12), 0 4px 12px rgba(37,99,235,0.20)' }}>
+                          <p style={{ fontWeight: 800, fontSize: 16, color: SURFACE, margin: '0 0 10px' }}>Monthly Cost</p>
+                          <p style={{ fontWeight: 800, fontSize: 30, color: SURFACE, letterSpacing: '-0.03em', lineHeight: 1, margin: 0 }}>{formatMYR(section.monthly)}</p>
+                        </div>
+                        <div style={{ background: ACCENT, borderRadius: 10, padding: '18px 20px', color: SURFACE, textAlign: 'center', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.12), 0 4px 12px rgba(37,99,235,0.20)' }}>
+                          <p style={{ fontWeight: 800, fontSize: 16, color: SURFACE, margin: '0 0 10px' }}>First Month Cost</p>
+                          <p style={{ fontWeight: 800, fontSize: 30, color: SURFACE, letterSpacing: '-0.03em', lineHeight: 1, margin: 0 }}>{formatMYR(section.firstMonth)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
-                {/* Manifesto */}
-                <div style={{ background: INK, borderRadius: 8, padding: '20px 24px', marginTop: 14, display: 'grid', gridTemplateColumns: '1fr auto', gap: 16 }}>
-                  <div>
-                    <h3 style={{ fontWeight: 800, fontSize: 20, color: SURFACE, letterSpacing: '-0.02em', margin: 0, lineHeight: 1.15 }}>Internal cost and mark up cost</h3>
-                    <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', lineHeight: 1.6, margin: '8px 0 0' }}>Estimated cost = Internal cost + External cost + Mark up cost. The mark up cost is calculated from the target margin percentage.</p>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontWeight: 800, fontSize: 38, color: SURFACE, lineHeight: 1, letterSpacing: '-0.02em' }}>{formatMYR(grand.margin)}</div>
-                    <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 4 }}>Mark Up Cost &middot; {grand.marginPct.toFixed(1)}%</div>
-                  </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center', justifyContent: 'space-between', background: ACCENT_SOFT, border: '1px solid ' + ACCENT + '33', borderRadius: 8, padding: '12px 16px', marginTop: 14 }}>
+                  <span style={{ fontSize: 12, color: INK2 }}>ⓘ Note: DID is calculated automatically based on the rule: 1 Channel = 2 DID (Local DID)</span>
+                  <span style={{ fontSize: 12, color: INK2 }}>Internal Cost = Internal + External</span>
+                  <span style={{ fontSize: 12, color: INK2 }}>Estimated Cost = Internal Cost + Mark Up</span>
                 </div>
               </div>
             )}
