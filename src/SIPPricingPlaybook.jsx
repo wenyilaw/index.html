@@ -93,7 +93,6 @@ const DEFAULT_BUNDLE_RULES = {
     enabled: true,
     channelItem: 'channels.perChannelMonthly',
     didItem: 'numbers.didLocal',
-    activationItem: 'numbers.numberActivation',
     didPerChannel: 2,
     label: 'SIP Channel to DID Rule',
   },
@@ -156,12 +155,13 @@ const SCENARIO_COLOR_OPTIONS = [
   { name: 'Dark', color: INK, colorSoft: '#F1F5F9' },
 ];
 
-const DEFAULT_SCENARIO_SECTIONS = [
+const SCENARIO_SECTION_OPTIONS = [
   { id: 'certified', label: 'Certified IP-PBX / SBC / MGW', desc: 'Certified customer-owned IP-PBX, SBC or MGW deployment scenarios.' },
   { id: 'managed', label: 'Managed IP-PBX / SBC / MGW', desc: 'YES-managed voice platform, managed SBC, managed MGW and recurring support scenarios.' },
   { id: 'addon', label: 'Add-On to Existing Scenario', desc: 'Optional add-ons that can be attached to a selected certified or managed scenario.' },
 ];
 
+const SCENARIO_SECTION_LABELS = SCENARIO_SECTION_OPTIONS.reduce((acc, section) => ({ ...acc, [section.id]: section.label }), {});
 
 const LINE_ITEM_SECTION_OPTIONS = [
   'Installation Charges (OTC)',
@@ -311,17 +311,6 @@ export default function SIPPricingPlaybook() {
       return base.map((sc, idx) => normaliseScenario(sanitizeScenario(sc), DEFAULT_SCENARIOS[idx] || {}));
     } catch (e) { return DEFAULT_SCENARIOS.map(sc => normaliseScenario(sanitizeScenario(sc))); }
   });
-  const [scenarioSections, setScenarioSections] = useState(() => {
-    try {
-      const saved = localStorage.getItem('sipScenarioSections_v1');
-      const parsed = saved ? JSON.parse(saved) : null;
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      return DEFAULT_SCENARIO_SECTIONS;
-    } catch (e) { return DEFAULT_SCENARIO_SECTIONS; }
-  });
-  const [sectionForm, setSectionForm] = useState({ id: '', label: '', desc: '' });
-  const [editingSectionId, setEditingSectionId] = useState(null);
-  const [showSectionForm, setShowSectionForm] = useState(false);
   const [bundleRules, setBundleRules] = useState(() => {
     try {
       const saved = localStorage.getItem('sipBundleRules_v1');
@@ -391,10 +380,6 @@ export default function SIPPricingPlaybook() {
   }, [bundleRules]);
 
   useEffect(() => {
-    try { localStorage.setItem('sipScenarioSections_v1', JSON.stringify(scenarioSections)); } catch (e) { /* ignore */ }
-  }, [scenarioSections]);
-
-  useEffect(() => {
     try { localStorage.setItem('sipScenarios_v3', JSON.stringify(scenarios.map(prepareScenarioForStorage))); } catch (e) { /* ignore */ }
   }, [scenarios]);
 
@@ -438,61 +423,6 @@ export default function SIPPricingPlaybook() {
   };
 
   // ─── SCENARIO MANAGEMENT ───────────────────────────────
-  const getScenarioSectionLabel = (sectionId) => (scenarioSections.find(section => section.id === sectionId)?.label || sectionId || 'Unassigned');
-
-  const startAddSection = () => {
-    setSectionForm({ id: 'section-' + Date.now().toString(36), label: '', desc: '' });
-    setEditingSectionId(null);
-    setShowSectionForm(true);
-  };
-
-  const startEditSection = (section) => {
-    setSectionForm({ ...section });
-    setEditingSectionId(section.id);
-    setShowSectionForm(true);
-  };
-
-  const saveScenarioSection = () => {
-    if (!sectionForm.label.trim()) return;
-    const safeId = (sectionForm.id || sectionForm.label).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || ('section-' + Date.now().toString(36));
-    const nextSection = { id: safeId, label: sectionForm.label.trim(), desc: sectionForm.desc.trim() };
-    setScenarioSections(prev => editingSectionId ? prev.map(section => section.id === editingSectionId ? nextSection : section) : [...prev, nextSection]);
-    if (editingSectionId && editingSectionId !== safeId) {
-      setScenarios(prev => prev.map(sc => (sc.scenarioType === editingSectionId ? { ...sc, scenarioType: safeId } : sc)));
-    }
-    setShowSectionForm(false);
-    setEditingSectionId(null);
-    setSectionForm({ id: '', label: '', desc: '' });
-    showSaved();
-  };
-
-  const removeScenarioSection = (sectionId) => {
-    const fallbackSection = scenarioSections.find(section => section.id !== sectionId)?.id || 'certified';
-    setScenarioSections(prev => prev.filter(section => section.id !== sectionId));
-    setScenarios(prev => prev.map(sc => (sc.scenarioType === sectionId ? { ...sc, scenarioType: fallbackSection } : sc)));
-    setConfirmAction(null);
-    showSaved();
-  };
-
-  const moveScenarioSection = (sectionId, direction) => {
-    setScenarioSections(prev => {
-      const index = prev.findIndex(section => section.id === sectionId);
-      const targetIndex = index + direction;
-      if (index < 0 || targetIndex < 0 || targetIndex >= prev.length) return prev;
-      const updated = [...prev];
-      [updated[index], updated[targetIndex]] = [updated[targetIndex], updated[index]];
-      return updated;
-    });
-    showSaved();
-  };
-
-  const resetScenarioSectionsToFactory = () => {
-    setScenarioSections(DEFAULT_SCENARIO_SECTIONS);
-    setScenarios(prev => prev.map(sc => DEFAULT_SCENARIO_SECTIONS.some(section => section.id === sc.scenarioType) ? sc : { ...sc, scenarioType: 'certified' }));
-    setConfirmAction(null);
-    showSaved();
-  };
-
   const allCostItemPaths = () => catOrder.flatMap(cat => costDB[cat] ? Object.keys(costDB[cat]).map(key => cat + '.' + key).filter(path => !isRemovedBundlePath(path)) : []);
 
   const startAddScenario = () => {
@@ -759,13 +689,8 @@ export default function SIPPricingPlaybook() {
 
     // Auto-include the linked DID line whenever the selected scenario has the configured SIP channel item.
     // Example: Sales enters 5 channels and the rule is 2 DID per channel, then DID line appears as 10.
-    if (rule.enabled && merged.includes(rule.channelItem)) {
-      if (rule.didItem && !merged.includes(rule.didItem)) {
-        merged.push(rule.didItem);
-      }
-      if (rule.activationItem && !merged.includes(rule.activationItem)) {
-        merged.push(rule.activationItem);
-      }
+    if (rule.enabled && merged.includes(rule.channelItem) && rule.didItem && !merged.includes(rule.didItem)) {
+      merged.push(rule.didItem);
     }
 
     return Array.from(new Set(merged)).filter(item => !isRemovedBundlePath(item));
@@ -785,17 +710,11 @@ export default function SIPPricingPlaybook() {
     return grouped.filter(g => g.items.length > 0);
   };
 
-  const isBundleLinkedItem = (dotPath) => {
+  const isBundleDidItem = (dotPath) => {
     const rule = getActiveBundleRule();
     const activeItems = getActiveItems();
-    return !!(
-      rule.enabled &&
-      activeItems.includes(rule.channelItem) &&
-      (dotPath === rule.didItem || dotPath === rule.activationItem)
-    );
+    return !!(rule.enabled && dotPath === rule.didItem && activeItems.includes(rule.channelItem));
   };
-
-  const isBundleDidItem = (dotPath) => isBundleLinkedItem(dotPath);
 
   const getBaseQty = (dotPath) => {
     if (qtyInputs[dotPath] !== undefined) return qtyInputs[dotPath];
@@ -805,9 +724,23 @@ export default function SIPPricingPlaybook() {
 
   const getQty = (dotPath) => {
     const rule = getActiveBundleRule();
-    if (rule.enabled && (dotPath === rule.didItem || dotPath === rule.activationItem) && getActiveItems().includes(rule.channelItem)) {
+    const hasChannelItem = getActiveItems().includes(rule.channelItem);
+
+    if (rule.enabled && dotPath === rule.didItem && hasChannelItem) {
       return getBaseQty(rule.channelItem) * (Number(rule.didPerChannel) || 0);
     }
+
+    // Number Activation Fee follows the same Channel → DID default,
+    // but remains editable by Sales/User. Once user edits it, qtyInputs value is used.
+    if (
+      rule.enabled &&
+      dotPath === 'numbers.numberActivation' &&
+      qtyInputs[dotPath] === undefined &&
+      hasChannelItem
+    ) {
+      return getBaseQty(rule.channelItem) * (Number(rule.didPerChannel) || 0);
+    }
+
     return getBaseQty(dotPath);
   };
 
@@ -815,7 +748,7 @@ export default function SIPPricingPlaybook() {
     const rule = getActiveBundleRule();
 
     // DID quantity is controlled by the SIP channel quantity when bundle rule is enabled.
-    if (rule.enabled && (dotPath === rule.didItem || dotPath === rule.activationItem)) return;
+    if (rule.enabled && dotPath === rule.didItem) return;
 
     const setting = getScenarioItemSetting(dotPath);
     if (!setting.quantityEditable) return;
@@ -825,10 +758,15 @@ export default function SIPPricingPlaybook() {
 
     setQtyInputs(prev => {
       const updated = { ...prev, [dotPath]: nextQty };
-      if (rule.enabled && dotPath === rule.channelItem) {
+      if (rule.enabled && dotPath === rule.channelItem && rule.didItem) {
         const linkedQty = nextQty * (Number(rule.didPerChannel) || 0);
-        if (rule.didItem) updated[rule.didItem] = linkedQty;
-        if (rule.activationItem) updated[rule.activationItem] = linkedQty;
+        updated[rule.didItem] = linkedQty;
+
+        // Auto-fill Number Activation Fee together with DID.
+        // It is still editable afterwards because setQty is not blocked for this item.
+        if (updated['numbers.numberActivation'] === undefined || qtyInputs['numbers.numberActivation'] === undefined) {
+          updated['numbers.numberActivation'] = linkedQty;
+        }
       }
       return updated;
     });
@@ -1098,9 +1036,6 @@ export default function SIPPricingPlaybook() {
               <Key style={{ width: 16, height: 16 }} />
               Sign In
             </button>
-            <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: INK3, textAlign: 'center', marginTop: 16, letterSpacing: '0.06em' }}>
-              Default: admin / xxxxxxxx
-            </p>
           </div>
         </div>
       </div>
@@ -1112,7 +1047,7 @@ export default function SIPPricingPlaybook() {
   // ═══════════════════════════════════════════════════════════
   const tabs = [
     { id: 'sales', label: 'Sales Calculator', icon: Calculator, roles: ['admin', 'editor', 'sales'] },
-    { id: 'engineering', label: 'Cost Database', icon: Settings, roles: ['admin', 'editor', 'sales'] },
+    { id: 'engineering', label: 'Cost Database', icon: Settings, roles: ['admin', 'editor'] },
     { id: 'scenarios', label: 'Scenarios', icon: Shield, roles: ['admin'] },
     { id: 'quotes', label: 'Estimated Cost', icon: FileText, roles: ['admin', 'editor', 'sales'] },
     { id: 'users', label: 'User Management', icon: Users, roles: ['admin'] },
@@ -1212,7 +1147,7 @@ export default function SIPPricingPlaybook() {
             </div>
 
             {/* Scenario cards grouped by section */}
-            {scenarioSections.map(section => {
+            {SCENARIO_SECTION_OPTIONS.map(section => {
               const sectionScenarios = scenarios.filter(sc => (sc.scenarioType || 'certified') === section.id);
               if (sectionScenarios.length === 0) return null;
               return (
@@ -1351,19 +1286,19 @@ export default function SIPPricingPlaybook() {
                         const lineMarkup = lt.sell - lt.internal - lt.external;
                         const hasQty = getQty(dotPath) > 0;
                         const qtySetting = getScenarioItemSetting(dotPath);
-                        const bundleLinkedItem = isBundleLinkedItem(dotPath);
-                        const qtyEditable = qtySetting.quantityEditable && !bundleLinkedItem;
+                        const bundleLinkedDid = isBundleDidItem(dotPath);
+                        const qtyEditable = qtySetting.quantityEditable && !bundleLinkedDid;
                         return (
                           <div key={dotPath} style={{ display: 'grid', gridTemplateColumns: '2.4fr 60px 90px 90px 90px 90px 70px', padding: '8px 18px', borderBottom: '1px solid ' + BORDER, alignItems: 'center', background: hasQty ? ACCENT_SOFT : SURFACE, transition: 'background 0.15s' }}>
                             <div>
                               <span style={{ fontSize: 12, fontWeight: 500, color: INK }}>{item.label}</span>
                               <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, color: INK3, marginLeft: 6, letterSpacing: '0.04em' }}>{item.unit}</span>
-                              {bundleLinkedItem && <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, color: ACCENT, marginLeft: 6, letterSpacing: '0.04em' }}>AUTO: {getActiveBundleRule().didPerChannel} DID / activation per channel</span>}
+                              {bundleLinkedDid && <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, color: ACCENT, marginLeft: 6, letterSpacing: '0.04em' }}>AUTO: {getActiveBundleRule().didPerChannel} DID per channel</span>}
                             </div>
                             <div style={{ textAlign: 'center' }}>
                               <input type="number" min={qtySetting.minQty || 0} max={qtySetting.maxQty || 9999} value={getQty(dotPath) || ''} onChange={e => setQty(dotPath, e.target.value)} placeholder="0" disabled={!qtyEditable}
                                 style={{ width: 48, padding: '3px 5px', fontFamily: "'JetBrains Mono', monospace", fontSize: 11, border: '1.5px solid ' + BORDER, background: qtyEditable ? SURFACE : BG, borderRadius: 6, textAlign: 'center', color: qtyEditable ? INK : INK3, cursor: qtyEditable ? 'text' : 'not-allowed' }} />
-                              {!qtyEditable && <span title={bundleLinkedItem ? 'Quantity is linked to SIP channel quantity' : 'Quantity locked by admin'} style={{ fontSize: 10, color: INK3, marginLeft: 3 }}>🔒</span>}
+                              {!qtyEditable && <span title={bundleLinkedDid ? 'DID quantity is linked to SIP channel quantity' : 'Quantity locked by admin'} style={{ fontSize: 10, color: INK3, marginLeft: 3 }}>🔒</span>}
                             </div>
                             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, textAlign: 'right', color: INK2 }}>{formatMYR(lt.internal)}</span>
                             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, textAlign: 'right', color: INK2 }}>{formatMYR(lt.external)}</span>
@@ -1387,37 +1322,39 @@ export default function SIPPricingPlaybook() {
                   </div>
                 </div>
 
-                {/* Internal and Mark Up Estimated Cost panels */}
+                {/* Estimated Cost and Recommended Charging panels */}
                 <div style={{ marginTop: 16 }}>
                   {[
                     {
-                      title: 'Internal Estimated Cost',
+                      title: 'Estimated Cost',
+                      color: ACCENT,
                       oneTime: breakdown.oneTimeCost,
                       monthly: breakdown.recurCost,
                       firstMonth: breakdown.oneTimeCost + breakdown.recurCost,
                     },
                     {
-                      title: 'Mark Up Estimated Cost',
+                      title: 'Recommended Charging',
+                      color: '#EA3383',
                       oneTime: breakdown.oneTimeSell,
                       monthly: breakdown.recurSell,
                       firstMonth: breakdown.oneTimeSell + breakdown.recurSell,
                     },
                   ].map(section => (
                     <div key={section.title} style={{ background: SURFACE, border: '1px solid ' + BORDER, borderRadius: 8, overflow: 'hidden', marginTop: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-                      <div style={{ background: ACCENT, color: SURFACE, padding: '9px 14px', fontWeight: 800, fontSize: 16, letterSpacing: '-0.01em' }}>
+                      <div style={{ background: section.color, color: SURFACE, padding: '9px 14px', fontWeight: 800, fontSize: 16, letterSpacing: '-0.01em' }}>
                         {section.title}
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(180px, 1fr))', gap: 24, padding: '16px 24px' }}>
-                        <div style={{ background: ACCENT, borderRadius: 10, padding: '18px 20px', color: SURFACE, textAlign: 'center', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.12), 0 4px 12px rgba(37,99,235,0.20)' }}>
-                          <p style={{ fontWeight: 800, fontSize: 16, color: SURFACE, margin: '0 0 10px' }}>One Time Cost</p>
+                        <div style={{ background: section.color, borderRadius: 10, padding: '18px 20px', color: SURFACE, textAlign: 'center', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.12), 0 4px 12px rgba(37,99,235,0.20)' }}>
+                          <p style={{ fontWeight: 800, fontSize: 16, color: SURFACE, margin: '0 0 10px' }}>Non-Recurring Cost (One Time)</p>
                           <p style={{ fontWeight: 800, fontSize: 30, color: SURFACE, letterSpacing: '-0.03em', lineHeight: 1, margin: 0 }}>{formatMYR(section.oneTime)}</p>
                         </div>
-                        <div style={{ background: ACCENT, borderRadius: 10, padding: '18px 20px', color: SURFACE, textAlign: 'center', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.12), 0 4px 12px rgba(37,99,235,0.20)' }}>
-                          <p style={{ fontWeight: 800, fontSize: 16, color: SURFACE, margin: '0 0 10px' }}>Monthly Cost</p>
+                        <div style={{ background: section.color, borderRadius: 10, padding: '18px 20px', color: SURFACE, textAlign: 'center', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.12), 0 4px 12px rgba(37,99,235,0.20)' }}>
+                          <p style={{ fontWeight: 800, fontSize: 16, color: SURFACE, margin: '0 0 10px' }}>Recurring Cost (Monthly Charges)</p>
                           <p style={{ fontWeight: 800, fontSize: 30, color: SURFACE, letterSpacing: '-0.03em', lineHeight: 1, margin: 0 }}>{formatMYR(section.monthly)}</p>
                         </div>
-                        <div style={{ background: ACCENT, borderRadius: 10, padding: '18px 20px', color: SURFACE, textAlign: 'center', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.12), 0 4px 12px rgba(37,99,235,0.20)' }}>
-                          <p style={{ fontWeight: 800, fontSize: 16, color: SURFACE, margin: '0 0 10px' }}>First Month Cost</p>
+                        <div style={{ background: section.color, borderRadius: 10, padding: '18px 20px', color: SURFACE, textAlign: 'center', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.12), 0 4px 12px rgba(37,99,235,0.20)' }}>
+                          <p style={{ fontWeight: 800, fontSize: 16, color: SURFACE, margin: '0 0 10px' }}>First Month</p>
                           <p style={{ fontWeight: 800, fontSize: 30, color: SURFACE, letterSpacing: '-0.03em', lineHeight: 1, margin: 0 }}>{formatMYR(section.firstMonth)}</p>
                         </div>
                       </div>
@@ -1657,62 +1594,6 @@ export default function SIPPricingPlaybook() {
               <p style={{ fontSize: 12, color: GREEN, fontWeight: 600, margin: 0 }}>Saved scenario changes are applied immediately to the Sales Calculator. No code change or page refresh is required.</p>
             </div>
 
-            <div style={{ background: SURFACE, border: '1px solid ' + BORDER, borderRadius: 8, padding: '16px 18px', marginBottom: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
-                <div>
-                  <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: ACCENT, margin: 0 }}>Scenario Sections</p>
-                  <p style={{ fontSize: 12, color: INK3, margin: '4px 0 0' }}>Configure how scenarios are grouped in the Sales Calculator.</p>
-                </div>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <button onClick={startAddSection} style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 11, background: ACCENT, color: SURFACE, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}><Plus style={{ width: 12, height: 12 }} /> Add Section</button>
-                  <button onClick={() => setConfirmAction({ title: 'Reset Scenario Sections', message: 'This will restore the built-in scenario sections and move scenarios in deleted sections back to Certified.', confirmLabel: 'Reset Sections', onConfirm: resetScenarioSectionsToFactory })} style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 11, background: SURFACE, color: RED, border: '1.5px solid #FECACA', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}><RefreshCw style={{ width: 12, height: 12 }} /> Reset Sections</button>
-                </div>
-              </div>
-
-              {showSectionForm && (
-                <div style={{ background: BG, border: '1px solid ' + BORDER, borderRadius: 8, padding: 12, marginBottom: 12 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr 2fr auto', gap: 8, alignItems: 'end' }}>
-                    <div>
-                      <label style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: INK3, display: 'block', marginBottom: 5 }}>Section ID</label>
-                      <input value={sectionForm.id} onChange={e => setSectionForm(p => ({ ...p, id: e.target.value }))} style={{ width: '100%', padding: '8px 10px', fontFamily: "'JetBrains Mono', monospace", fontSize: 12, border: '1.5px solid ' + BORDER, borderRadius: 8, boxSizing: 'border-box' }} />
-                    </div>
-                    <div>
-                      <label style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: INK3, display: 'block', marginBottom: 5 }}>Section Name</label>
-                      <input value={sectionForm.label} onChange={e => setSectionForm(p => ({ ...p, label: e.target.value }))} placeholder="e.g. Enterprise SIP Solutions" style={{ width: '100%', padding: '8px 10px', fontFamily: "'Inter', sans-serif", fontSize: 13, border: '1.5px solid ' + BORDER, borderRadius: 8, boxSizing: 'border-box' }} />
-                    </div>
-                    <div>
-                      <label style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: INK3, display: 'block', marginBottom: 5 }}>Description</label>
-                      <input value={sectionForm.desc} onChange={e => setSectionForm(p => ({ ...p, desc: e.target.value }))} placeholder="Shown below section title in Sales Calculator" style={{ width: '100%', padding: '8px 10px', fontFamily: "'Inter', sans-serif", fontSize: 13, border: '1.5px solid ' + BORDER, borderRadius: 8, boxSizing: 'border-box' }} />
-                    </div>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button onClick={saveScenarioSection} style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 12, background: ACCENT, color: SURFACE, border: 'none', borderRadius: 8, padding: '8px 12px', cursor: 'pointer' }}>Save</button>
-                      <button onClick={() => { setShowSectionForm(false); setEditingSectionId(null); setSectionForm({ id: '', label: '', desc: '' }); }} style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 12, background: SURFACE, color: INK3, border: '1.5px solid ' + BORDER, borderRadius: 8, padding: '8px 12px', cursor: 'pointer' }}>Cancel</button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div style={{ display: 'grid', gap: 8 }}>
-                {scenarioSections.map((section, index) => {
-                  const count = scenarios.filter(sc => (sc.scenarioType || 'certified') === section.id).length;
-                  return (
-                    <div key={section.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'center', padding: '10px 12px', border: '1px solid ' + BORDER, borderRadius: 8, background: BG }}>
-                      <div>
-                        <div style={{ fontWeight: 800, color: INK, fontSize: 13 }}>{section.label}</div>
-                        <div style={{ fontSize: 11, color: INK3, marginTop: 3 }}>{section.desc || 'No description'} · {count} scenario{count === 1 ? '' : 's'}</div>
-                      </div>
-                      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                        <button disabled={index === 0} onClick={() => moveScenarioSection(section.id, -1)} style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 10, background: SURFACE, color: INK3, border: '1px solid ' + BORDER, borderRadius: 6, padding: '5px 8px', cursor: index === 0 ? 'not-allowed' : 'pointer' }}>Up</button>
-                        <button disabled={index === scenarioSections.length - 1} onClick={() => moveScenarioSection(section.id, 1)} style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 10, background: SURFACE, color: INK3, border: '1px solid ' + BORDER, borderRadius: 6, padding: '5px 8px', cursor: index === scenarioSections.length - 1 ? 'not-allowed' : 'pointer' }}>Down</button>
-                        <button onClick={() => startEditSection(section)} style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 10, background: SURFACE, color: ACCENT, border: '1px solid ' + ACCENT + '55', borderRadius: 6, padding: '5px 8px', cursor: 'pointer' }}>Edit</button>
-                        <button disabled={scenarioSections.length <= 1} onClick={() => setConfirmAction({ title: 'Delete Scenario Section', message: 'Scenarios in this section will be moved to another available section.', confirmLabel: 'Delete Section', onConfirm: () => removeScenarioSection(section.id) })} style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600, fontSize: 10, background: SURFACE, color: RED, border: '1px solid #FECACA', borderRadius: 6, padding: '5px 8px', cursor: scenarioSections.length <= 1 ? 'not-allowed' : 'pointer' }}>Delete</button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
             {showScenarioForm && (
               <div style={{ background: SURFACE, border: '1px solid ' + BORDER, borderRadius: 8, padding: '18px 20px', marginBottom: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
@@ -1734,7 +1615,7 @@ export default function SIPPricingPlaybook() {
                 <div style={{ marginBottom: 12 }}>
                   <label style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: INK3, display: 'block', marginBottom: 5 }}>Scenario Section</label>
                   <select value={scenarioForm.scenarioType || 'certified'} onChange={e => setScenarioForm(p => ({ ...p, scenarioType: e.target.value }))} style={{ width: '100%', padding: '8px 10px', fontFamily: "'Inter', sans-serif", fontSize: 13, border: '1.5px solid ' + BORDER, borderRadius: 8, boxSizing: 'border-box' }}>
-                    {scenarioSections.map(section => <option key={section.id} value={section.id}>{section.label}</option>)}
+                    {SCENARIO_SECTION_OPTIONS.map(section => <option key={section.id} value={section.id}>{section.label}</option>)}
                   </select>
                 </div>
 
@@ -1817,7 +1698,7 @@ export default function SIPPricingPlaybook() {
                         <div>
                           <p style={{ fontSize: 13, fontWeight: 700, color: INK, margin: '0 0 3px' }}>{sc.name}</p>
                           <p style={{ fontSize: 12, color: INK3, lineHeight: 1.5, margin: 0 }}>{sc.desc}</p>
-                          <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: INK3, letterSpacing: '0.06em', textTransform: 'uppercase', margin: '8px 0 0' }}>{getScenarioSectionLabel(sc.scenarioType || 'certified')} · {sc.items.length} line items</p>
+                          <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: INK3, letterSpacing: '0.06em', textTransform: 'uppercase', margin: '8px 0 0' }}>{SCENARIO_SECTION_LABELS[sc.scenarioType || 'certified']} · {sc.items.length} line items</p>
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
