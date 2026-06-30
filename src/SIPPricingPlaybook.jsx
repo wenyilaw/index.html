@@ -93,7 +93,7 @@ const DEFAULT_BUNDLE_RULES = {
     enabled: true,
     channelItem: 'channels.perChannelMonthly',
     didItem: 'numbers.didLocal',
-    didPerChannel: 2,
+    didPerChannel: 1,
     label: 'SIP Channel to DID Rule',
   },
 };
@@ -750,16 +750,23 @@ export default function SIPPricingPlaybook() {
     ...((bundleRules && bundleRules.channelDidLink) || {}),
   });
 
+  const getAutoLinkedDidItems = () => {
+    const rule = getActiveBundleRule();
+    return [rule.didItem, 'numbers.didMobile', 'numbers.numberActivation'].filter(Boolean);
+  };
+
   const getActiveItems = () => {
     const baseItems = isCustomScenario ? Object.keys(customItems).filter(k => customItems[k]) : (scenarioObj ? scenarioObj.items : []);
     const addOnItems = isCustomScenario ? [] : selectedAddOnScenarios.flatMap(sc => sc.items || []);
     const rule = getActiveBundleRule();
     const merged = [...baseItems, ...addOnItems];
 
-    // Auto-include the linked DID line whenever the selected scenario has the configured SIP channel item.
-    // Example: Sales enters 5 channels and the rule is 2 DID per channel, then DID line appears as 10.
-    if (rule.enabled && merged.includes(rule.channelItem) && rule.didItem && !merged.includes(rule.didItem)) {
-      merged.push(rule.didItem);
+    // Auto-include Local DID, Mobile DID, and Number Activation when the selected scenario has SIP channels.
+    // Default rule: 1 channel = 1 DID. These quantities are auto-filled but still editable by user.
+    if (rule.enabled && merged.includes(rule.channelItem)) {
+      getAutoLinkedDidItems().forEach(path => {
+        if (path && !merged.includes(path)) merged.push(path);
+      });
     }
 
     return Array.from(new Set(merged)).filter(item => !isRemovedBundlePath(item));
@@ -782,7 +789,7 @@ export default function SIPPricingPlaybook() {
   const isBundleDidItem = (dotPath) => {
     const rule = getActiveBundleRule();
     const activeItems = getActiveItems();
-    return !!(rule.enabled && dotPath === rule.didItem && activeItems.includes(rule.channelItem));
+    return !!(rule.enabled && getAutoLinkedDidItems().includes(dotPath) && activeItems.includes(rule.channelItem));
   };
 
   const getBaseQty = (dotPath) => {
@@ -795,50 +802,28 @@ export default function SIPPricingPlaybook() {
     const rule = getActiveBundleRule();
     const hasChannelItem = getActiveItems().includes(rule.channelItem);
 
-    if (rule.enabled && dotPath === rule.didItem && hasChannelItem) {
-      return getBaseQty(rule.channelItem) * (Number(rule.didPerChannel) || 0);
-    }
-
-    // Number Activation Fee follows the same Channel → DID default,
-    // but remains editable by Sales/User. Once user edits it, qtyInputs value is used.
+    // Local DID, Mobile DID and Number Activation default from channel quantity.
+    // They remain editable: once the user changes any DID/activation quantity, qtyInputs value is used.
     if (
       rule.enabled &&
-      dotPath === 'numbers.numberActivation' &&
+      getAutoLinkedDidItems().includes(dotPath) &&
       qtyInputs[dotPath] === undefined &&
       hasChannelItem
     ) {
-      return getBaseQty(rule.channelItem) * (Number(rule.didPerChannel) || 0);
+      return getBaseQty(rule.channelItem) * (Number(rule.didPerChannel) || 1);
     }
 
     return getBaseQty(dotPath);
   };
 
   const setQty = (dotPath, val) => {
-    const rule = getActiveBundleRule();
-
-    // DID quantity is controlled by the SIP channel quantity when bundle rule is enabled.
-    if (rule.enabled && dotPath === rule.didItem) return;
-
     const setting = getScenarioItemSetting(dotPath);
     if (!setting.quantityEditable) return;
     const minQty = Number(setting.minQty) || 0;
     const maxQty = Number(setting.maxQty) || 9999;
     const nextQty = Math.max(minQty, Math.min(maxQty, Number(val) || 0));
 
-    setQtyInputs(prev => {
-      const updated = { ...prev, [dotPath]: nextQty };
-      if (rule.enabled && dotPath === rule.channelItem && rule.didItem) {
-        const linkedQty = nextQty * (Number(rule.didPerChannel) || 0);
-        updated[rule.didItem] = linkedQty;
-
-        // Auto-fill Number Activation Fee together with DID.
-        // It is still editable afterwards because setQty is not blocked for this item.
-        if (updated['numbers.numberActivation'] === undefined || qtyInputs['numbers.numberActivation'] === undefined) {
-          updated['numbers.numberActivation'] = linkedQty;
-        }
-      }
-      return updated;
-    });
+    setQtyInputs(prev => ({ ...prev, [dotPath]: nextQty }));
   };
 
   const calcLineTotal = (dotPath) => {
@@ -1362,7 +1347,7 @@ export default function SIPPricingPlaybook() {
                             <div>
                               <span style={{ fontSize: 12, fontWeight: 500, color: INK }}>{item.label}</span>
                               <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, color: INK3, marginLeft: 6, letterSpacing: '0.04em' }}>{item.unit}</span>
-                              {bundleLinkedDid && <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, color: ACCENT, marginLeft: 6, letterSpacing: '0.04em' }}>AUTO: {getActiveBundleRule().didPerChannel} DID per channel</span>}
+                              {bundleLinkedDid && <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, color: ACCENT, marginLeft: 6, letterSpacing: '0.04em' }}>AUTO DEFAULT: {getActiveBundleRule().didPerChannel} DID per channel · editable</span>}
                             </div>
                             <div style={{ textAlign: 'center' }}>
                               <input type="number" min={qtySetting.minQty || 0} max={qtySetting.maxQty || 9999} value={getQty(dotPath) || ''} onChange={e => setQty(dotPath, e.target.value)} placeholder="0" disabled={!qtyEditable}
