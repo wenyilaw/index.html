@@ -817,13 +817,31 @@ export default function SIPPricingPlaybook() {
   };
 
   const setQty = (dotPath, val) => {
+    const rule = getActiveBundleRule();
     const setting = getScenarioItemSetting(dotPath);
-    if (!setting.quantityEditable) return;
+    const autoLinkedDid = isBundleDidItem(dotPath);
+
+    // Auto-linked DID items are still editable by user even if previous scenario settings locked them.
+    if (!autoLinkedDid && !setting.quantityEditable) return;
+
     const minQty = Number(setting.minQty) || 0;
     const maxQty = Number(setting.maxQty) || 9999;
     const nextQty = Math.max(minQty, Math.min(maxQty, Number(val) || 0));
 
-    setQtyInputs(prev => ({ ...prev, [dotPath]: nextQty }));
+    setQtyInputs(prev => {
+      const updated = { ...prev, [dotPath]: nextQty };
+
+      // When SIP Channel is changed, auto-update Local DID, Mobile DID and Number Activation.
+      // Users can still manually edit those DID/activation quantities afterwards.
+      if (rule.enabled && dotPath === rule.channelItem) {
+        const linkedQty = nextQty * (Number(rule.didPerChannel) || 1);
+        getAutoLinkedDidItems().forEach(path => {
+          if (path) updated[path] = linkedQty;
+        });
+      }
+
+      return updated;
+    });
   };
 
   const calcLineTotal = (dotPath) => {
@@ -1341,7 +1359,9 @@ export default function SIPPricingPlaybook() {
                         const hasQty = getQty(dotPath) > 0;
                         const qtySetting = getScenarioItemSetting(dotPath);
                         const bundleLinkedDid = isBundleDidItem(dotPath);
-                        const qtyEditable = qtySetting.quantityEditable && !bundleLinkedDid;
+                        // Local DID, Mobile DID and Number Activation are auto-updated from SIP Channel,
+                        // but remain editable by the user.
+                        const qtyEditable = bundleLinkedDid ? true : qtySetting.quantityEditable;
                         return (
                           <div key={dotPath} style={{ display: 'grid', gridTemplateColumns: '2.4fr 60px 90px 90px 90px 90px 70px', padding: '8px 18px', borderBottom: '1px solid ' + BORDER, alignItems: 'center', background: hasQty ? ACCENT_SOFT : SURFACE, transition: 'background 0.15s' }}>
                             <div>
@@ -1352,7 +1372,7 @@ export default function SIPPricingPlaybook() {
                             <div style={{ textAlign: 'center' }}>
                               <input type="number" min={qtySetting.minQty || 0} max={qtySetting.maxQty || 9999} value={getQty(dotPath) || ''} onChange={e => setQty(dotPath, e.target.value)} placeholder="0" disabled={!qtyEditable}
                                 style={{ width: 48, padding: '3px 5px', fontFamily: "'JetBrains Mono', monospace", fontSize: 11, border: '1.5px solid ' + BORDER, background: qtyEditable ? SURFACE : BG, borderRadius: 6, textAlign: 'center', color: qtyEditable ? INK : INK3, cursor: qtyEditable ? 'text' : 'not-allowed' }} />
-                              {!qtyEditable && <span title={bundleLinkedDid ? 'DID quantity is linked to SIP channel quantity' : 'Quantity locked by admin'} style={{ fontSize: 10, color: INK3, marginLeft: 3 }}>🔒</span>}
+                              {!qtyEditable && <span title={'Quantity locked by admin'} style={{ fontSize: 10, color: INK3, marginLeft: 3 }}>🔒</span>}
                             </div>
                             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, textAlign: 'right', color: INK2 }}>{formatMYR(lt.internal)}</span>
                             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, textAlign: 'right', color: INK2 }}>{formatMYR(lt.external)}</span>
