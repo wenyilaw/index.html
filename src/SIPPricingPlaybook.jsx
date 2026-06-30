@@ -93,6 +93,7 @@ const DEFAULT_BUNDLE_RULES = {
     enabled: true,
     channelItem: 'channels.perChannelMonthly',
     didItem: 'numbers.didLocal',
+    activationItem: 'numbers.numberActivation',
     didPerChannel: 2,
     label: 'SIP Channel to DID Rule',
   },
@@ -758,8 +759,13 @@ export default function SIPPricingPlaybook() {
 
     // Auto-include the linked DID line whenever the selected scenario has the configured SIP channel item.
     // Example: Sales enters 5 channels and the rule is 2 DID per channel, then DID line appears as 10.
-    if (rule.enabled && merged.includes(rule.channelItem) && rule.didItem && !merged.includes(rule.didItem)) {
-      merged.push(rule.didItem);
+    if (rule.enabled && merged.includes(rule.channelItem)) {
+      if (rule.didItem && !merged.includes(rule.didItem)) {
+        merged.push(rule.didItem);
+      }
+      if (rule.activationItem && !merged.includes(rule.activationItem)) {
+        merged.push(rule.activationItem);
+      }
     }
 
     return Array.from(new Set(merged)).filter(item => !isRemovedBundlePath(item));
@@ -779,11 +785,17 @@ export default function SIPPricingPlaybook() {
     return grouped.filter(g => g.items.length > 0);
   };
 
-  const isBundleDidItem = (dotPath) => {
+  const isBundleLinkedItem = (dotPath) => {
     const rule = getActiveBundleRule();
     const activeItems = getActiveItems();
-    return !!(rule.enabled && dotPath === rule.didItem && activeItems.includes(rule.channelItem));
+    return !!(
+      rule.enabled &&
+      activeItems.includes(rule.channelItem) &&
+      (dotPath === rule.didItem || dotPath === rule.activationItem)
+    );
   };
+
+  const isBundleDidItem = (dotPath) => isBundleLinkedItem(dotPath);
 
   const getBaseQty = (dotPath) => {
     if (qtyInputs[dotPath] !== undefined) return qtyInputs[dotPath];
@@ -793,7 +805,7 @@ export default function SIPPricingPlaybook() {
 
   const getQty = (dotPath) => {
     const rule = getActiveBundleRule();
-    if (rule.enabled && dotPath === rule.didItem && getActiveItems().includes(rule.channelItem)) {
+    if (rule.enabled && (dotPath === rule.didItem || dotPath === rule.activationItem) && getActiveItems().includes(rule.channelItem)) {
       return getBaseQty(rule.channelItem) * (Number(rule.didPerChannel) || 0);
     }
     return getBaseQty(dotPath);
@@ -803,7 +815,7 @@ export default function SIPPricingPlaybook() {
     const rule = getActiveBundleRule();
 
     // DID quantity is controlled by the SIP channel quantity when bundle rule is enabled.
-    if (rule.enabled && dotPath === rule.didItem) return;
+    if (rule.enabled && (dotPath === rule.didItem || dotPath === rule.activationItem)) return;
 
     const setting = getScenarioItemSetting(dotPath);
     if (!setting.quantityEditable) return;
@@ -813,8 +825,10 @@ export default function SIPPricingPlaybook() {
 
     setQtyInputs(prev => {
       const updated = { ...prev, [dotPath]: nextQty };
-      if (rule.enabled && dotPath === rule.channelItem && rule.didItem) {
-        updated[rule.didItem] = nextQty * (Number(rule.didPerChannel) || 0);
+      if (rule.enabled && dotPath === rule.channelItem) {
+        const linkedQty = nextQty * (Number(rule.didPerChannel) || 0);
+        if (rule.didItem) updated[rule.didItem] = linkedQty;
+        if (rule.activationItem) updated[rule.activationItem] = linkedQty;
       }
       return updated;
     });
@@ -1337,19 +1351,19 @@ export default function SIPPricingPlaybook() {
                         const lineMarkup = lt.sell - lt.internal - lt.external;
                         const hasQty = getQty(dotPath) > 0;
                         const qtySetting = getScenarioItemSetting(dotPath);
-                        const bundleLinkedDid = isBundleDidItem(dotPath);
-                        const qtyEditable = qtySetting.quantityEditable && !bundleLinkedDid;
+                        const bundleLinkedItem = isBundleLinkedItem(dotPath);
+                        const qtyEditable = qtySetting.quantityEditable && !bundleLinkedItem;
                         return (
                           <div key={dotPath} style={{ display: 'grid', gridTemplateColumns: '2.4fr 60px 90px 90px 90px 90px 70px', padding: '8px 18px', borderBottom: '1px solid ' + BORDER, alignItems: 'center', background: hasQty ? ACCENT_SOFT : SURFACE, transition: 'background 0.15s' }}>
                             <div>
                               <span style={{ fontSize: 12, fontWeight: 500, color: INK }}>{item.label}</span>
                               <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, color: INK3, marginLeft: 6, letterSpacing: '0.04em' }}>{item.unit}</span>
-                              {bundleLinkedDid && <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, color: ACCENT, marginLeft: 6, letterSpacing: '0.04em' }}>AUTO: {getActiveBundleRule().didPerChannel} DID per channel</span>}
+                              {bundleLinkedItem && <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 8, color: ACCENT, marginLeft: 6, letterSpacing: '0.04em' }}>AUTO: {getActiveBundleRule().didPerChannel} DID / activation per channel</span>}
                             </div>
                             <div style={{ textAlign: 'center' }}>
                               <input type="number" min={qtySetting.minQty || 0} max={qtySetting.maxQty || 9999} value={getQty(dotPath) || ''} onChange={e => setQty(dotPath, e.target.value)} placeholder="0" disabled={!qtyEditable}
                                 style={{ width: 48, padding: '3px 5px', fontFamily: "'JetBrains Mono', monospace", fontSize: 11, border: '1.5px solid ' + BORDER, background: qtyEditable ? SURFACE : BG, borderRadius: 6, textAlign: 'center', color: qtyEditable ? INK : INK3, cursor: qtyEditable ? 'text' : 'not-allowed' }} />
-                              {!qtyEditable && <span title={bundleLinkedDid ? 'DID quantity is linked to SIP channel quantity' : 'Quantity locked by admin'} style={{ fontSize: 10, color: INK3, marginLeft: 3 }}>🔒</span>}
+                              {!qtyEditable && <span title={bundleLinkedItem ? 'Quantity is linked to SIP channel quantity' : 'Quantity locked by admin'} style={{ fontSize: 10, color: INK3, marginLeft: 3 }}>🔒</span>}
                             </div>
                             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, textAlign: 'right', color: INK2 }}>{formatMYR(lt.internal)}</span>
                             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, textAlign: 'right', color: INK2 }}>{formatMYR(lt.external)}</span>
