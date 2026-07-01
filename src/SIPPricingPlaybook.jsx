@@ -93,7 +93,7 @@ const DEFAULT_BUNDLE_RULES = {
     enabled: true,
     channelItem: 'channels.perChannelMonthly',
     didItem: 'numbers.didLocal',
-    didPerChannel: 1,
+    didPerChannel: 2,
     label: 'SIP Channel to DID Rule',
   },
 };
