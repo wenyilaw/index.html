@@ -242,6 +242,11 @@ const catOrder = ['sipTrunk', 'channels', 'numbers', 'integration', 'cloudPBX', 
 
 const unitOptions = ['one-time', 'per month', 'per trunk/month', 'per link/month', 'per channel/month', 'per number/month', 'per number/one-time', 'per user/month', 'per unit/month', 'per day', 'per session', 'per site/one-time', 'per minute', 'per message', 'included/month'];
 
+const COMBINED_DID_ITEM = 'virtual.didCombined';
+const DID_COMPONENT_ITEMS = ['numbers.didLocal', 'numbers.didMobile'];
+const isDidComponentItem = (dotPath = '') => DID_COMPONENT_ITEMS.includes(dotPath);
+
+
 const isRemovedBundlePath = (dotPath = '') => {
   const value = String(dotPath).toLowerCase();
   return value.includes('sipdidbundle') || value.includes('sipchanneldidbundle') || value.includes('channel+dids') || value.includes('bundle.sip');
@@ -628,7 +633,8 @@ export default function SIPPricingPlaybook() {
   };
 
   const getScenarioItemSetting = (dotPath) => {
-    const defaultSetting = { defaultQty: 0, quantityEditable: true, minQty: 0, maxQty: 9999, mandatory: false, lineSection: defaultLineItemSection(dotPath) };
+    const defaultSetting = { defaultQty: 0, quantityEditable: true, minQty: 0, maxQty: 9999, mandatory: false, lineSection: dotPath === COMBINED_DID_ITEM ? 'SIP DIDs' : defaultLineItemSection(dotPath) };
+    if (dotPath === COMBINED_DID_ITEM) return defaultSetting;
     if (isCustomScenario) return defaultSetting;
     const ownerScenarios = [scenarioObj, ...selectedAddOnScenarios].filter(Boolean);
     const owner = ownerScenarios.find(sc => (sc.items || []).includes(dotPath));
@@ -752,18 +758,18 @@ export default function SIPPricingPlaybook() {
 
   const getAutoLinkedDidItems = () => {
     const rule = getActiveBundleRule();
-    return [rule.didItem, 'numbers.didMobile', 'numbers.numberActivation'].filter(Boolean);
+    return [rule.didItem, 'numbers.numberActivation'].filter(Boolean);
   };
 
   const getAutoLinkedChannelQtyItems = () => ['sipTrunk.monthlyAccess'];
 
-  const getActiveItems = () => {
+  const getRawActiveItems = () => {
     const baseItems = isCustomScenario ? Object.keys(customItems).filter(k => customItems[k]) : (scenarioObj ? scenarioObj.items : []);
     const addOnItems = isCustomScenario ? [] : selectedAddOnScenarios.flatMap(sc => sc.items || []);
     const rule = getActiveBundleRule();
     const merged = [...baseItems, ...addOnItems];
 
-    // Auto-include Local DID, Mobile DID, Number Activation and SIP Trunk Monthly Access when SIP channels are selected.
+    // Auto-include DID, Number Activation and SIP Trunk Monthly Access when SIP channels are selected.
     // Default DID rule: 1 channel = 1 DID. Monthly Access follows the channel quantity 1:1.
     // These quantities are auto-filled but still editable by user.
     if (rule.enabled && merged.includes(rule.channelItem)) {
@@ -773,6 +779,22 @@ export default function SIPPricingPlaybook() {
     }
 
     return Array.from(new Set(merged)).filter(item => !isRemovedBundlePath(item));
+  };
+
+  const getActiveDidComponentItems = () => {
+    const rawItems = getRawActiveItems();
+    const activeDids = rawItems.filter(isDidComponentItem);
+    // If the old saved browser data still contains both Local DID and Mobile DID,
+    // show only one combined DID row while keeping the underlying cost calculation.
+    return Array.from(new Set(activeDids));
+  };
+
+  const getActiveItems = () => {
+    const rawItems = getRawActiveItems();
+    const activeDids = rawItems.filter(isDidComponentItem);
+    const itemsWithoutDidComponents = rawItems.filter(item => !isDidComponentItem(item));
+    if (activeDids.length > 0) itemsWithoutDidComponents.push(COMBINED_DID_ITEM);
+    return Array.from(new Set(itemsWithoutDidComponents));
   };
 
   const getActiveLineGroups = () => {
@@ -791,8 +813,8 @@ export default function SIPPricingPlaybook() {
 
   const isBundleDidItem = (dotPath) => {
     const rule = getActiveBundleRule();
-    const activeItems = getActiveItems();
-    return !!(rule.enabled && getAutoLinkedDidItems().includes(dotPath) && activeItems.includes(rule.channelItem));
+    const rawItems = getRawActiveItems();
+    return !!(rule.enabled && (dotPath === COMBINED_DID_ITEM || getAutoLinkedDidItems().includes(dotPath)) && rawItems.includes(rule.channelItem));
   };
 
   const getBaseQty = (dotPath) => {
@@ -805,11 +827,11 @@ export default function SIPPricingPlaybook() {
     const rule = getActiveBundleRule();
     const hasChannelItem = getActiveItems().includes(rule.channelItem);
 
-    // Local DID, Mobile DID and Number Activation default from channel quantity.
+    // DID and Number Activation default from channel quantity.
     // They remain editable: once the user changes any DID/activation quantity, qtyInputs value is used.
     if (
       rule.enabled &&
-      getAutoLinkedDidItems().includes(dotPath) &&
+      (dotPath === COMBINED_DID_ITEM || getAutoLinkedDidItems().includes(dotPath)) &&
       qtyInputs[dotPath] === undefined &&
       hasChannelItem
     ) {
@@ -845,10 +867,11 @@ export default function SIPPricingPlaybook() {
     setQtyInputs(prev => {
       const updated = { ...prev, [dotPath]: nextQty };
 
-      // When SIP Channel is changed, auto-update Local DID, Mobile DID and Number Activation.
+      // When SIP Channel is changed, auto-update DID and Number Activation.
       // Users can still manually edit those DID/activation quantities afterwards.
       if (rule.enabled && dotPath === rule.channelItem) {
         const linkedQty = nextQty * (Number(rule.didPerChannel) || 1);
+        updated[COMBINED_DID_ITEM] = linkedQty;
         getAutoLinkedDidItems().forEach(path => {
           if (path) updated[path] = linkedQty;
         });
@@ -861,8 +884,24 @@ export default function SIPPricingPlaybook() {
     });
   };
 
+  const getDisplayCostItem = (dotPath) => {
+    if (dotPath === COMBINED_DID_ITEM) {
+      const didItems = getActiveDidComponentItems();
+      const costs = didItems.map(path => getCostItem(costDB, path)).filter(Boolean);
+      const internal = costs.reduce((sum, item) => sum + (Number(item.internal) || 0), 0);
+      const external = costs.reduce((sum, item) => sum + (Number(item.external) || 0), 0);
+      return {
+        label: 'DID',
+        unit: 'per number/month',
+        internal,
+        external,
+      };
+    }
+    return getCostItem(costDB, dotPath);
+  };
+
   const calcLineTotal = (dotPath) => {
-    const item = getCostItem(costDB, dotPath);
+    const item = getDisplayCostItem(dotPath);
     if (!item) return { internal: 0, external: 0, sell: 0 };
     const qty = getQty(dotPath);
     const intTotal = item.internal * qty;
@@ -890,7 +929,7 @@ export default function SIPPricingPlaybook() {
     const items = getActiveItems();
     let oneTimeCost = 0, oneTimeSell = 0, recurCost = 0, recurSell = 0;
     items.forEach(dotPath => {
-      const item = getCostItem(costDB, dotPath);
+      const item = getDisplayCostItem(dotPath);
       const lt = calcLineTotal(dotPath);
       if (!item) return;
       if (item.unit === 'one-time' || item.unit.includes('one-time')) {
@@ -911,7 +950,7 @@ export default function SIPPricingPlaybook() {
   const addToQuote = () => {
     const items = getActiveItems();
     const lines = items.map(dotPath => {
-      const item = getCostItem(costDB, dotPath);
+      const item = getDisplayCostItem(dotPath);
       const qty = getQty(dotPath);
       const lt = calcLineTotal(dotPath);
       return { dotPath, label: item?.label || dotPath, section: getScenarioItemSetting(dotPath).lineSection || defaultLineItemSection(dotPath), unit: item?.unit || '', qty, internal: lt.internal, external: lt.external, sell: lt.sell };
@@ -1368,7 +1407,7 @@ export default function SIPPricingPlaybook() {
                     <React.Fragment key={group.section}>
                       <div style={{ padding: '7px 18px', background: INK, color: SURFACE, fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{group.section}</div>
                       {group.items.map(dotPath => {
-                        const item = getCostItem(costDB, dotPath);
+                        const item = getDisplayCostItem(dotPath);
                         if (!item) return null;
                         const lt = calcLineTotal(dotPath);
                         const lineMargin = lt.sell > 0 ? ((lt.sell - lt.internal - lt.external) / lt.sell * 100) : 0;
@@ -1454,7 +1493,7 @@ export default function SIPPricingPlaybook() {
                 </div>
 
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center', justifyContent: 'space-between', background: ACCENT_SOFT, border: '1px solid ' + ACCENT + '33', borderRadius: 8, padding: '12px 16px', marginTop: 14 }}>
-                  <span style={{ fontSize: 12, color: INK2 }}>ⓘ Note: DID is calculated automatically based on the rule: 1 Channel = 2 DID (Local DID)</span>
+                  <span style={{ fontSize: 12, color: INK2 }}>ⓘ Note: DID is calculated automatically based on the rule: 1 Channel = 1 DID</span>
                   <span style={{ fontSize: 12, color: INK2 }}>Internal Cost = Internal + External</span>
                   <span style={{ fontSize: 12, color: INK2 }}>Estimated Cost = Internal Cost + Mark Up</span>
                 </div>
